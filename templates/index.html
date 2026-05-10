@@ -1,0 +1,266 @@
+<!doctype html>
+<html lang="zh-Hant">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{{ project.name }}</title>
+    <style>
+      :root {
+        --bg: #f4f6f0;
+        --text: #20251f;
+        --muted: #5c665f;
+        --panel: #ffffff;
+        --line: #d9dfd5;
+        --accent: #247462;
+        --accent-dark: #174d43;
+        --warning: #d58b21;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        font-family: "Noto Sans TC", "Microsoft JhengHei", Arial, sans-serif;
+        background: var(--bg);
+        color: var(--text);
+      }
+
+      main {
+        width: min(1080px, calc(100% - 32px));
+        margin: 0 auto;
+        padding: 48px 0;
+      }
+
+      .hero {
+        display: grid;
+        grid-template-columns: minmax(0, 1.4fr) minmax(280px, 0.8fr);
+        gap: 28px;
+        align-items: stretch;
+      }
+
+      .intro {
+        padding: 34px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: var(--panel);
+      }
+
+      .tag {
+        width: fit-content;
+        margin-bottom: 18px;
+        padding: 7px 12px;
+        border-radius: 999px;
+        background: #e2eee9;
+        color: var(--accent-dark);
+        font-size: 0.92rem;
+        font-weight: 700;
+      }
+
+      h1 {
+        margin: 0;
+        font-size: clamp(2rem, 4vw, 3.6rem);
+        line-height: 1.15;
+        letter-spacing: 0;
+      }
+
+      .summary {
+        margin: 20px 0 0;
+        color: var(--muted);
+        font-size: 1.08rem;
+        line-height: 1.85;
+      }
+
+      .status {
+        display: grid;
+        align-content: center;
+        gap: 18px;
+        padding: 28px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: #fffdf8;
+      }
+
+      .signal {
+        display: grid;
+        place-items: center;
+        width: 86px;
+        height: 86px;
+        border-radius: 50%;
+        background: #f5dfb9;
+        color: #68400b;
+        font-size: 2.3rem;
+        font-weight: 900;
+      }
+
+      .status h2,
+      .card h2 {
+        margin: 0;
+        font-size: 1.12rem;
+      }
+
+      .status p,
+      .card p,
+      .card li {
+        color: var(--muted);
+        line-height: 1.75;
+      }
+
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 16px;
+        margin-top: 18px;
+      }
+
+      .card {
+        padding: 22px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: var(--panel);
+      }
+
+      .card ul {
+        margin: 12px 0 0;
+        padding-left: 20px;
+      }
+
+      .source-list {
+        display: grid;
+        gap: 12px;
+        margin-top: 12px;
+      }
+
+      .source {
+        padding: 14px;
+        border-left: 4px solid var(--accent);
+        background: #f8faf7;
+      }
+
+      .source strong {
+        display: block;
+        margin-bottom: 4px;
+      }
+
+      .stack {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        margin-top: 14px;
+      }
+
+      .stack span {
+        padding: 8px 11px;
+        border: 1px solid var(--line);
+        border-radius: 999px;
+        background: #f8faf7;
+        color: var(--accent-dark);
+        font-weight: 700;
+      }
+
+      footer {
+        margin-top: 24px;
+        color: var(--muted);
+        font-size: 0.95rem;
+      }
+
+      @media (max-width: 780px) {
+        main {
+          padding: 28px 0;
+        }
+
+        .hero,
+        .grid {
+          grid-template-columns: 1fr;
+        }
+
+        .intro,
+        .status,
+        .card {
+          padding: 20px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <section class="hero">
+        <div class="intro">
+          <div class="tag">Flask MVP / 主路由 /</div>
+          <h1>{{ project.name }}</h1>
+          <p class="summary">{{ project.summary }}</p>
+        </div>
+
+        <aside class="status" aria-label="偵測狀態示意">
+          <div class="signal">AI</div>
+          <h2>期末專題方向</h2>
+          <p>結合 Jetson 邊緣裝置、影像辨識、資料庫與網頁系統，建立安全帽偵測與工安資訊展示平台。</p>
+        </aside>
+      </section>
+
+      <section class="grid" aria-label="專題內容">
+        <article class="card">
+          <h2>組員名單</h2>
+          <ul>
+            {% for member in project.team_members %}
+            <li>{{ member }}</li>
+            {% endfor %}
+          </ul>
+        </article>
+
+        <article class="card">
+          <h2>期末預計使用技術</h2>
+          <div class="stack">
+            {% for item in project.future_stack %}
+            <span>{{ item }}</span>
+            {% endfor %}
+          </div>
+        </article>
+
+        <article class="card">
+          <h2>可以爬取哪些資料</h2>
+          <ul>
+            {% for item in project.data_items %}
+            <li>{{ item }}</li>
+            {% endfor %}
+          </ul>
+        </article>
+
+        <article class="card">
+          <h2>資料來源網站</h2>
+          <div class="source-list">
+            {% for source in project.crawler_sources %}
+            <div class="source">
+              <strong>{{ source.title }}</strong>
+              <span>{{ source.description }}</span>
+            </div>
+            {% endfor %}
+          </div>
+        </article>
+      </section>
+
+      <section class="grid" aria-label="呈現方式">
+        <article class="card">
+          <h2>爬取資料如何呈現在網頁上</h2>
+          <p>{{ project.display_plan }}</p>
+        </article>
+
+        <article class="card">
+          <h2>MVP 完成項目</h2>
+          <ul>
+            <li>使用 Flask 建立網站後端</li>
+            <li>實作主路由 /</li>
+            <li>使用 Jinja 模板顯示專題主題與說明</li>
+            <li>提供 venv 啟動與重現步驟</li>
+          </ul>
+        </article>
+      </section>
+
+      <footer>
+        目前頁面由 Flask 後端與 Jinja 模板產生，可作為本次 MVP 作業截圖。
+      </footer>
+    </main>
+  </body>
+</html>
