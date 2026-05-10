@@ -8,7 +8,7 @@ app = Flask(__name__)
 
 PROJECT = {
     "name": "Jetson AI 智慧安全帽偵測系統",
-    "team_members": ["林偲駒", "邱冠凱", "黃舒禾"],
+    "team_members": ["林偲駒", "邱冠凱", "黃舒禾", "方守東"],
     "summary": (
         "本專題使用 NVIDIA Jetson Orin Nano 串接攝影機，透過 YOLO 與 OpenCV "
         "即時偵測人員是否正確配戴安全帽。若偵測到未配戴安全帽的人員，"
