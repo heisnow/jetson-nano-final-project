@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+
+{% block title %}專題計畫 / {{ project.name }}{% endblock %}
+
+{% block content %}
+<section class="panel">
+  <div class="tag">Project Plan</div>
+  <h1>專題計畫書摘要</h1>
+  <p>{{ project.subtitle }}</p>
+</section>
+
+<section class="grid two">
+  <article class="panel">
+    <h2>動機</h2>
+    <p>{{ project.motivation }}</p>
+  </article>
+
+  <article class="panel">
+    <h2>資料來源</h2>
+    <ul>
+      {% for source in project.data_sources %}
+      <li>{{ source }}</li>
+      {% endfor %}
+    </ul>
+  </article>
+
+  <article class="panel">
+    <h2>作品價值</h2>
+    <p>把 AI 當成能力放大器：人負責判斷與改善，系統負責收集、整理與提醒，讓安全管理從事後檢討變成事前觀察。</p>
+  </article>
+
+  <article class="panel">
+    <h2>展示故事</h2>
+    <p>想像一位新進工人第一天進場，系統不是為了抓錯，而是為了在風險發生前多提醒一次。這個網站把公開案例變成教材，也把現場事件變成改善依據。</p>
+  </article>
+</section>
+{% endblock %}

@@ -3,4 +3,5 @@
 __pycache__/
 *.pyc
 .env
+safety_insight.db
 .DS_Store

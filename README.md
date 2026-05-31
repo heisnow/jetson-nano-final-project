@@ -1,10 +1,10 @@
-# Jetson AI 智慧安全帽偵測系統
+# 工安新聞與安全帽風險資料分析平台
 
-這是一個使用 Flask 製作的最小可行產品（MVP）。目前已完成主路由 `/`，瀏覽器進入首頁後會顯示小組期末專題主題、專題介紹、預計爬取資料、資料來源網站，以及資料未來如何呈現在網頁上。
+這是一個 Flask 期末專題雛形，主題從「綁定特定攝像頭的安全帽辨識」調整為更容易完成與部署的資料產品：先用動態網頁爬蟲收集工安新聞、職災案例與安全帽相關資料，存入 Render PostgreSQL，再用 Flask 網站呈現資料列表與分析結果。NVIDIA Jetson Orin Nano + 攝像頭保留為加分擴充模組，不需要先確定攝像頭型號。
 
-## 專題名稱
+## 專題動機
 
-Jetson AI 智慧安全帽偵測系統
+工地安全不是只有法規與口號，也關係到每一位進場工作者是否能平安回家。本專題希望把 AI 當成能力放大器：人負責判斷、溝通與改善，系統負責收集資料、整理趨勢與即時提醒。先從公開資料理解風險，再讓 Jetson 原型成為現場提醒的起點。
 
 ## 組員名單
 
@@ -13,91 +13,100 @@ Jetson AI 智慧安全帽偵測系統
 - 黃舒禾
 - 方守東
 
-## 專題介紹
+## 功能
 
-本專題使用 NVIDIA Jetson Orin Nano 串接攝影機，透過 YOLO 與 OpenCV 即時偵測人員是否正確配戴安全帽。若偵測到未配戴安全帽的人員，系統會發出警示，並將違規紀錄與相關安全資訊整理後顯示在網站上，可應用於工地、工廠、實驗室等需要安全管理的場域。
+- Flask 網站主路由 `/`
+- 工安資料列表 `/articles`
+- 關鍵字與分類搜尋
+- 資料分析頁 `/analysis`
+- Jetson 擴充說明與事件資料 `/jetson`
+- 專題計畫頁 `/plan`
+- PostgreSQL / SQLite 自動建表
+- Playwright 動態網頁爬蟲 `crawler.py`
+- Jetson 偵測事件模擬寫入 `jetson_event.py`
+- Render 部署設定 `render.yaml`
 
-## 使用設備
+## 專案架構
 
-- NVIDIA Jetson Orin Nano
-- USB Camera 或 CSI Camera
-- LED 警示燈
-- 蜂鳴器
+```text
+.
+├── app.py
+├── database.py
+├── models.py
+├── crawler.py
+├── jetson_event.py
+├── requirements.txt
+├── requirements-crawler.txt
+├── render.yaml
+├── Dockerfile
+├── PROJECT_PLAN.md
+├── PRESENTATION_OUTLINE.md
+└── templates
+    ├── base.html
+    ├── index.html
+    ├── articles.html
+    ├── analysis.html
+    ├── jetson.html
+    └── plan.html
+```
 
-## 使用技術
+## 本機執行
 
-- Python
-- OpenCV
-- YOLO
-- Flask
-- Git / GitHub
-- PostgreSQL
-- Render
+### 1. 建立與啟動虛擬環境
 
-## 期末專題規劃
+```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+```
 
-### 可以爬取哪些資料
+### 2. 安裝網站套件
 
-- 工安案例標題
-- 發布日期
-- 案例或新聞摘要
-- 資料來源連結
-- 安全帽偵測違規紀錄
+```powershell
+pip install -r requirements.txt
+```
 
-### 資料來源網站
+### 3. 啟動 Flask
 
-- 勞動部職業安全衛生署公開資訊：職業安全、工安宣導或職災案例等公開資料。
-- 工安新聞或公開案例網站：安全帽、工地安全與職災預防相關新聞標題、日期與連結。
+```powershell
+python app.py
+```
 
-正式實作爬蟲前，應先確認來源網站的 robots.txt 與使用條款，並控制請求頻率，避免造成網站負擔。
+瀏覽器開啟：
 
-### 爬取資料如何呈現在網頁上
+```text
+http://127.0.0.1:5000/
+```
 
-後續版本會將爬蟲資料存入 PostgreSQL，並在 Flask 網站中以列表或卡片方式呈現。每筆資料預計顯示標題、日期、摘要、來源連結與分類，也會加入 Jetson 安全帽偵測紀錄，讓使用者可以查看違規時間、狀態與相關安全資訊。
+Local 沒有設定 `DATABASE_URL` 時，系統會使用 `safety_insight.db` SQLite 檔案，方便開發與展示。
 
-## 環境需求
+## 使用 Docker
 
-### Docker 方式
+```powershell
+docker build -t safety-insight-flask .
+docker run --rm -p 5000:5000 safety-insight-flask
+```
 
-- Docker Desktop
+瀏覽器開啟：
 
-### venv 方式
+```text
+http://127.0.0.1:5000/
+```
 
-- Python 3.10 以上
-- venv
-- pip
+## 使用 Render PostgreSQL
 
-## 專案啟動方式
+1. 在 Render 建立 PostgreSQL。
+2. 複製資料庫的 `Internal Database URL` 或 `External Database URL`。
+3. 在 Render Web Service 的 Environment Variables 新增：
 
-本專案建議使用 Docker 啟動，較容易在不同電腦上重現環境。若電腦沒有 Docker，也可以使用 venv。
+```text
+DATABASE_URL=postgresql://USER:PASSWORD@HOST:PORT/DATABASE
+```
+
+程式會自動把 Render 的 PostgreSQL URL 轉成 SQLAlchemy 可用格式。
 
 ## 部署到 Render
 
-若希望不同地方的同學都能開啟網站，可以將專案部署到 Render。部署完成後，Render 會提供一個公開網址，例如 `https://your-service-name.onrender.com`。
-
-### 1. 上傳到 GitHub
-
-請先確認專案已經推送到 GitHub repository。
-
-常用指令如下：
-
-```powershell
-git add .
-git commit -m "Add Flask MVP for Render deployment"
-git push
-```
-
-### 2. 在 Render 建立 Web Service
-
-1. 登入 Render。
-2. 點選 `New`。
-3. 選擇 `Web Service`。
-4. 連接你的 GitHub repository。
-5. 選擇本專案所在的 repository 與 branch。
-
-### 3. Render 設定
-
-若 Render 沒有自動讀取 `render.yaml`，請手動填入以下設定：
+Render Web Service 設定：
 
 ```text
 Language: Python 3
@@ -105,131 +114,61 @@ Build Command: pip install -r requirements.txt
 Start Command: gunicorn app:app
 ```
 
-### 4. 完成部署
+本專案也提供 `render.yaml`，Render Blueprint 可以依設定建立 Web Service 並連接 PostgreSQL。
 
-按下部署後，等待 Render build 完成。成功後，Render 會產生公開網址，其他同學在不同網路也能直接開啟該網址。
+## 執行動態網頁爬蟲
 
-## 使用 Docker 啟動
+爬蟲使用 Playwright，會用瀏覽器載入動態網頁，再把資料寫進資料庫。
 
-### 1. 啟動 Docker Desktop
-
-請先打開 Docker Desktop，等到 Docker Desktop 顯示 Docker Engine 已成功啟動後，再執行以下指令。
-
-### 2. 建立 Docker image
-
-請先進入專案資料夾：
+### 1. 安裝爬蟲套件
 
 ```powershell
-cd "C:\Users\heisnow\OneDrive\桌面\jetson-nano-finalprojec"
+pip install -r requirements-crawler.txt
+python -m playwright install chromium
 ```
 
-建立 image：
+### 2. 測試解析結果
 
 ```powershell
-docker build -t jetson-flask-mvp .
+python crawler.py --dry-run
 ```
 
-### 3. 啟動 container
+### 3. 寫入資料庫
 
 ```powershell
-docker run --name jetson-flask-mvp-container -p 5000:5000 jetson-flask-mvp
+python crawler.py
 ```
 
-啟動成功後，終端機會顯示類似以下訊息：
-
-```text
-Running on http://127.0.0.1:5000
-Running on http://172.x.x.x:5000
-```
-
-請用瀏覽器開啟：
-
-```text
-http://127.0.0.1:5000/
-```
-
-### 4. 停止 container
-
-若要停止執行中的 container，可以按 `Ctrl + C`。
-
-如果 container 在背景執行，可使用：
+若要寫入 Render PostgreSQL，請先設定環境變數：
 
 ```powershell
-docker stop jetson-flask-mvp-container
-docker rm jetson-flask-mvp-container
+$env:DATABASE_URL="postgresql://USER:PASSWORD@HOST:PORT/DATABASE"
+python crawler.py
 ```
 
-## 使用 venv 啟動
+## Jetson Orin Nano 擴充
 
-### 1. 建立虛擬環境
+因為攝像頭型號尚未確定，本專題不把程式寫死在某個攝像頭型號上。未來只要攝像頭能被 OpenCV 讀取，就能接到同一套資料流程。
 
-Windows PowerShell：
+目前可用模擬事件測試資料庫與網站：
 
 ```powershell
-python -m venv .venv
+python jetson_event.py --location "A區入口" --status "未戴安全帽" --confidence 0.92
 ```
 
-macOS / Linux：
+## 建議小組分工
 
-```bash
-python3 -m venv .venv
-```
+- 林偲駒：Flask 路由與頁面整合
+- 邱冠凱：PostgreSQL 資料表與 Render 部署
+- 黃舒禾：Playwright 動態爬蟲與資料清理
+- 方守東：資料分析頁、Jetson 擴充與報告整理
 
-### 2. 啟動虛擬環境
+## 報告繳交提醒
 
-Windows PowerShell：
-
-```powershell
-.\.venv\Scripts\Activate.ps1
-```
-
-macOS / Linux：
-
-```bash
-source .venv/bin/activate
-```
-
-啟動成功後，命令列前方通常會出現 `(.venv)`。
-
-### 3. 安裝套件
-
-```bash
-pip install -r requirements.txt
-```
-
-### 4. 執行 Flask 專案
-
-```bash
-python app.py
-```
-
-啟動成功後，終端機會顯示類似以下訊息：
-
-```text
-Running on http://127.0.0.1:5000
-```
-
-請用瀏覽器開啟：
-
-```text
-http://127.0.0.1:5000/
-```
-
-## 作業截圖建議
-
-1. 瀏覽器開啟 `http://127.0.0.1:5000/`，確認首頁成功顯示「Jetson AI 智慧安全帽偵測系統」。
-2. 若使用 Docker，截圖終端機顯示 `docker run` 後 Flask 成功啟動的畫面。
-3. 若使用 venv，截圖終端機顯示虛擬環境已啟動，例如命令列前方出現 `(.venv)`。
-
-## 專案結構
-
-```text
-.
-├── app.py
-├── Dockerfile
-├── render.yaml
-├── requirements.txt
-├── README.md
-└── templates
-    └── index.html
-```
+- GitHub repo 連結
+- Render 網站公開連結
+- 1080p MP4 影片
+- 動機與問題說明
+- 程式碼講解
+- 爬蟲、資料庫、資料分析、部署流程展示
+- 心得與未來落地想像
