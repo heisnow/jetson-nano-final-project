@@ -5,13 +5,13 @@
 {% block content %}
 <section class="panel">
   <div class="tag">Data Analysis</div>
-  <h1>資料分析</h1>
-  <p>分析頁把資料庫中的文章依照分類、風險關鍵字、月份與來源整理成視覺化摘要，讓報告時可以說明資料背後的風險趨勢。</p>
+  <h1>使用與分類分析</h1>
+  <p>分析頁可以展示「哪些回收分類最常出現」、「使用者最常掃描什麼」以及「哪些結果可信度較低，需要補資料或改善模型」。</p>
 </section>
 
 <section class="grid two">
   <article class="panel">
-    <h2>分類分布</h2>
+    <h2>規則分類分布</h2>
     {% for label, count in category_counts %}
     <div class="bar-row">
       <span>{{ label }}</span>
@@ -22,34 +22,38 @@
   </article>
 
   <article class="panel">
-    <h2>風險關鍵字</h2>
-    {% for label, count in keyword_counts %}
+    <h2>掃描熱門物品</h2>
+    {% for label, count in scanned_items %}
     <div class="bar-row">
       <span>{{ label }}</span>
-      <div class="bar-track"><div class="bar-fill" style="width: {{ (count / max_keyword * 100)|round }}%; background: var(--green);"></div></div>
+      <div class="bar-track"><div class="bar-fill" style="width: {{ (count / max_scanned * 100)|round }}%; background: var(--blue);"></div></div>
       <strong>{{ count }}</strong>
     </div>
+    {% else %}
+    <p>目前還沒有掃描紀錄。先到鏡頭掃描頁建立資料。</p>
     {% endfor %}
   </article>
 
   <article class="panel">
-    <h2>月份趨勢</h2>
-    {% for label, count in monthly_counts %}
-    <div class="bar-row">
-      <span>{{ label }}</span>
-      <div class="bar-track"><div class="bar-fill" style="width: {{ (count / max_monthly * 100)|round }}%; background: var(--blue);"></div></div>
-      <strong>{{ count }}</strong>
-    </div>
-    {% endfor %}
-  </article>
-
-  <article class="panel">
-    <h2>資料來源</h2>
+    <h2>材質分布</h2>
     <ul>
-      {% for label, count in source_counts %}
+      {% for label, count in material_counts %}
       <li>{{ label }}：{{ count }} 筆</li>
       {% endfor %}
     </ul>
+  </article>
+
+  <article class="panel">
+    <h2>模型改善指標</h2>
+    <div class="stat">
+      <strong>{{ scan_count }}</strong>
+      <span>總掃描紀錄</span>
+    </div>
+    <div class="stat" style="margin-top: 18px;">
+      <strong>{{ low_confidence_count }}</strong>
+      <span>低可信度紀錄</span>
+    </div>
+    <p style="margin-top: 14px;">低可信度代表規則資料不足或使用者輸入太模糊，後續可用來補充爬蟲資料與訓練模型。</p>
   </article>
 </section>
 {% endblock %}

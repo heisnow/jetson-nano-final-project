@@ -1,13 +1,12 @@
 from __future__ import annotations
 
 import os
-from datetime import date, datetime, timedelta, timezone
 
 from dotenv import load_dotenv
 from sqlalchemy import create_engine, func, select
 from sqlalchemy.orm import Session, sessionmaker
 
-from models import Base, JetsonEvent, SafetyArticle
+from models import Base, RecyclingRule, ScanRecord
 
 
 load_dotenv()
@@ -22,76 +21,73 @@ def normalize_database_url(url: str) -> str:
 
 
 def get_database_url() -> str:
-    return normalize_database_url(os.environ.get("DATABASE_URL", "sqlite:///safety_insight.db"))
+    return normalize_database_url(os.environ.get("DATABASE_URL", "sqlite:///ecolens.db"))
 
 
 engine = create_engine(get_database_url(), pool_pre_ping=True)
 SessionLocal = sessionmaker(bind=engine, expire_on_commit=False)
 
 
-DEMO_ARTICLES = [
+DEMO_RULES = [
     {
-        "title": "工地高處作業未落實防護，安全帽與安全帶成為第一道生命線",
-        "summary": "案例提醒營造現場必須落實個人防護具、作業前點檢與現場主管巡查。",
-        "source_name": "示範資料：工安新聞",
-        "source_url": "demo://safety-news-001",
-        "category": "營造安全",
-        "published_at": date(2026, 5, 18),
-        "keywords": "安全帽,高處作業,安全帶,營造",
+        "item_name": "寶特瓶",
+        "category": "資源回收 / 塑膠類",
+        "material": "PET 1 號塑膠",
+        "disposal_steps": "倒空內容物，簡單沖洗，瓶身壓扁，瓶蓋與瓶身可一起投入塑膠容器回收。",
+        "city": "通用",
+        "source_name": "示範資料：生活回收規則",
+        "source_url": "demo://pet-bottle",
+        "keywords": "PET,寶特瓶,塑膠瓶,飲料瓶",
     },
     {
-        "title": "職安宣導聚焦移工與新進人員，降低陌生場域事故風險",
-        "summary": "新進工作者常因語言、訓練與現場文化落差而暴露在較高風險中。",
-        "source_name": "示範資料：職安宣導",
-        "source_url": "demo://safety-news-002",
-        "category": "職安宣導",
-        "published_at": date(2026, 5, 12),
-        "keywords": "教育訓練,移工,職安文化",
+        "item_name": "鋁箔包",
+        "category": "資源回收 / 紙容器",
+        "material": "紙、塑膠膜、鋁箔複合材",
+        "disposal_steps": "喝完後壓扁，若有吸管與塑膠套需分開處理，依地方規定投入紙容器回收。",
+        "city": "通用",
+        "source_name": "示範資料：生活回收規則",
+        "source_url": "demo://carton",
+        "keywords": "鋁箔包,紙容器,飲料盒,牛奶盒",
     },
     {
-        "title": "工廠機械保養未停機，夾捲危害再度成為改善重點",
-        "summary": "設備維修前的上鎖掛牌與斷電確認，是避免夾捲事故的重要程序。",
-        "source_name": "示範資料：職災案例",
-        "source_url": "demo://safety-news-003",
-        "category": "機械安全",
-        "published_at": date(2026, 4, 28),
-        "keywords": "機械,夾捲,上鎖掛牌,停機",
+        "item_name": "手搖飲塑膠杯",
+        "category": "資源回收 / 塑膠杯",
+        "material": "PP 或 PET 塑膠",
+        "disposal_steps": "倒掉剩餘飲料，杯膜與吸管分開，杯身沖洗後投入塑膠類回收。",
+        "city": "通用",
+        "source_name": "示範資料：生活回收規則",
+        "source_url": "demo://drink-cup",
+        "keywords": "手搖飲,塑膠杯,PP,PET,飲料杯",
     },
     {
-        "title": "夏季高溫作業增加熱危害，戶外工地需安排補水與休息",
-        "summary": "高溫環境會影響判斷與反應速度，間接提高工安事故發生機率。",
-        "source_name": "示範資料：職業衛生",
-        "source_url": "demo://safety-news-004",
-        "category": "職業衛生",
-        "published_at": date(2026, 4, 10),
-        "keywords": "高溫,補水,戶外作業,熱危害",
+        "item_name": "紙餐盒",
+        "category": "依污染程度判斷",
+        "material": "紙類或淋膜紙",
+        "disposal_steps": "若油污嚴重通常不適合回收；若乾淨且地方接受紙容器回收，可清空後回收。",
+        "city": "通用",
+        "source_name": "示範資料：生活回收規則",
+        "source_url": "demo://paper-box",
+        "keywords": "紙餐盒,便當盒,外送盒,紙容器",
     },
     {
-        "title": "安全帽未確實配戴，影像辨識可協助現場即時提醒",
-        "summary": "邊緣 AI 裝置可在不等待人工巡查的情況下提醒現場人員完成防護。",
-        "source_name": "示範資料：AI 應用",
-        "source_url": "demo://safety-news-005",
-        "category": "AI 防護",
-        "published_at": date(2026, 3, 24),
-        "keywords": "安全帽,Jetson,YOLO,即時偵測",
-    },
-]
-
-
-DEMO_EVENTS = [
-    {
-        "location": "A 區入口",
-        "helmet_status": "未戴安全帽",
-        "confidence": 0.91,
-        "device_note": "Jetson Orin Nano 原型測試資料，不綁定特定攝像頭型號。",
-        "captured_at": datetime.now(timezone.utc) - timedelta(hours=5),
+        "item_name": "鐵鋁罐",
+        "category": "資源回收 / 金屬類",
+        "material": "鋁或鐵",
+        "disposal_steps": "倒空內容物，簡單沖洗，壓扁後投入金屬容器回收。",
+        "city": "通用",
+        "source_name": "示範資料：生活回收規則",
+        "source_url": "demo://can",
+        "keywords": "鐵罐,鋁罐,易開罐,金屬",
     },
     {
-        "location": "B 區施工平台",
-        "helmet_status": "已戴安全帽",
-        "confidence": 0.96,
-        "device_note": "可透過 USB 或 CSI 攝像頭擷取影像，再由 OpenCV/YOLO 判斷。",
-        "captured_at": datetime.now(timezone.utc) - timedelta(hours=2),
+        "item_name": "電池",
+        "category": "資源回收 / 乾電池",
+        "material": "金屬與化學材料",
+        "disposal_steps": "不可丟一般垃圾，應集中後投入超商、量販店或清潔隊提供的電池回收點。",
+        "city": "通用",
+        "source_name": "示範資料：生活回收規則",
+        "source_url": "demo://battery",
+        "keywords": "電池,乾電池,鈕扣電池,回收點",
     },
 ]
 
@@ -104,30 +100,52 @@ def init_db(seed: bool = True) -> None:
 
 def seed_demo_data() -> None:
     with SessionLocal() as session:
-        article_count = session.scalar(select(func.count()).select_from(SafetyArticle)) or 0
-        if article_count == 0:
-            session.add_all(SafetyArticle(**item) for item in DEMO_ARTICLES)
-
-        event_count = session.scalar(select(func.count()).select_from(JetsonEvent)) or 0
-        if event_count == 0:
-            session.add_all(JetsonEvent(**item) for item in DEMO_EVENTS)
-
+        rule_count = session.scalar(select(func.count()).select_from(RecyclingRule)) or 0
+        if rule_count == 0:
+            session.add_all(RecyclingRule(**item) for item in DEMO_RULES)
         session.commit()
 
 
-def upsert_article(session: Session, article_data: dict[str, object]) -> bool:
-    source_url = str(article_data["source_url"])
+def upsert_rule(session: Session, rule_data: dict[str, object]) -> bool:
+    item_name = str(rule_data["item_name"])
+    city = str(rule_data.get("city", "通用"))
     existing = session.scalar(
-        select(SafetyArticle).where(SafetyArticle.source_url == source_url)
+        select(RecyclingRule).where(
+            RecyclingRule.item_name == item_name,
+            RecyclingRule.city == city,
+        )
     )
     if existing:
-        existing.title = str(article_data.get("title", existing.title))
-        existing.summary = str(article_data.get("summary", existing.summary))
-        existing.source_name = str(article_data.get("source_name", existing.source_name))
-        existing.category = str(article_data.get("category", existing.category))
-        existing.keywords = str(article_data.get("keywords", existing.keywords))
-        existing.published_at = article_data.get("published_at", existing.published_at)
+        existing.category = str(rule_data.get("category", existing.category))
+        existing.material = str(rule_data.get("material", existing.material))
+        existing.disposal_steps = str(rule_data.get("disposal_steps", existing.disposal_steps))
+        existing.source_name = str(rule_data.get("source_name", existing.source_name))
+        existing.source_url = str(rule_data.get("source_url", existing.source_url))
+        existing.keywords = str(rule_data.get("keywords", existing.keywords))
         return False
 
-    session.add(SafetyArticle(**article_data))
+    session.add(RecyclingRule(**rule_data))
     return True
+
+
+def save_scan_record(
+    input_text: str,
+    guessed_item: str,
+    suggested_category: str,
+    confidence: float,
+    notes: str,
+    device_type: str = "browser camera",
+) -> ScanRecord:
+    with SessionLocal() as session:
+        record = ScanRecord(
+            input_text=input_text,
+            guessed_item=guessed_item,
+            suggested_category=suggested_category,
+            confidence=confidence,
+            notes=notes,
+            device_type=device_type,
+        )
+        session.add(record)
+        session.commit()
+        session.refresh(record)
+        return record

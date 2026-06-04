@@ -1,10 +1,12 @@
-# 工安新聞與安全帽風險資料分析平台
+# EcoLens 生活回收與標籤辨識助手
 
-這是一個 Flask 期末專題雛形，主題從「綁定特定攝像頭的安全帽辨識」調整為更容易完成與部署的資料產品：先用動態網頁爬蟲收集工安新聞、職災案例與安全帽相關資料，存入 Render PostgreSQL，再用 Flask 網站呈現資料列表與分析結果。NVIDIA Jetson Orin Nano + 攝像頭保留為加分擴充模組，不需要先確定攝像頭型號。
+EcoLens 是一個貼近日常生活的 Flask 期末專題。使用者打開網站後，可以直接使用目前裝置的鏡頭：電腦使用前鏡頭，手機可切換前後鏡頭，把寶特瓶、手搖飲杯、外送餐盒、鋁箔包或包裝標籤對準鏡頭，再輸入看到的材質文字，系統會依回收規則資料庫推測分類與處理方式。
+
+目前版本先完成可落地的網站、資料庫、相機頁面、文字規則分析與資料分析。未來可加入 OCR 和圖像分類模型，讓系統自動讀取鏡頭畫面中的文字與物品。
 
 ## 專題動機
 
-工地安全不是只有法規與口號，也關係到每一位進場工作者是否能平安回家。本專題希望把 AI 當成能力放大器：人負責判斷、溝通與改善，系統負責收集資料、整理趨勢與即時提醒。先從公開資料理解風險，再讓 Jetson 原型成為現場提醒的起點。
+每天都有人站在垃圾桶前猶豫：這個杯子能不能回收？鋁箔包算紙類嗎？外送餐盒太油還能丟回收嗎？EcoLens 希望把環保知識變成人人打開網頁就能使用的小工具，讓回收分類像拍照一樣簡單。
 
 ## 組員名單
 
@@ -16,14 +18,14 @@
 ## 功能
 
 - Flask 網站主路由 `/`
-- 工安資料列表 `/articles`
-- 關鍵字與分類搜尋
-- 資料分析頁 `/analysis`
-- Jetson 擴充說明與事件資料 `/jetson`
+- 瀏覽器鏡頭掃描頁 `/scan`
+- 手機前後鏡頭切換
+- 標籤文字分析 API `/api/analyze`
+- 回收規則資料庫 `/rules`
+- 使用與分類分析頁 `/analysis`
 - 專題計畫頁 `/plan`
 - PostgreSQL / SQLite 自動建表
 - Playwright 動態網頁爬蟲 `crawler.py`
-- Jetson 偵測事件模擬寫入 `jetson_event.py`
 - Render 部署設定 `render.yaml`
 
 ## 專案架構
@@ -34,7 +36,7 @@
 ├── database.py
 ├── models.py
 ├── crawler.py
-├── jetson_event.py
+├── sample_scan.py
 ├── requirements.txt
 ├── requirements-crawler.txt
 ├── render.yaml
@@ -44,9 +46,9 @@
 └── templates
     ├── base.html
     ├── index.html
-    ├── articles.html
+    ├── scan.html
+    ├── rules.html
     ├── analysis.html
-    ├── jetson.html
     └── plan.html
 ```
 
@@ -77,13 +79,13 @@ python app.py
 http://127.0.0.1:5000/
 ```
 
-Local 沒有設定 `DATABASE_URL` 時，系統會使用 `safety_insight.db` SQLite 檔案，方便開發與展示。
+本機沒有設定 `DATABASE_URL` 時，系統會使用 `ecolens.db` SQLite 檔案，方便開發與展示。
 
 ## 使用 Docker
 
 ```powershell
-docker build -t safety-insight-flask .
-docker run --rm -p 5000:5000 safety-insight-flask
+docker build -t ecolens-flask .
+docker run --rm -p 5000:5000 ecolens-flask
 ```
 
 瀏覽器開啟：
@@ -114,11 +116,11 @@ Build Command: pip install -r requirements.txt
 Start Command: gunicorn app:app
 ```
 
-本專案也提供 `render.yaml`，Render Blueprint 可以依設定建立 Web Service 並連接 PostgreSQL。
+本專案也提供 `render.yaml`，可使用 Render Blueprint 建立 Web Service 與 PostgreSQL。
 
 ## 執行動態網頁爬蟲
 
-爬蟲使用 Playwright，會用瀏覽器載入動態網頁，再把資料寫進資料庫。
+爬蟲使用 Playwright，會用瀏覽器載入動態網頁，再把回收相關資訊寫進資料庫。
 
 ### 1. 安裝爬蟲套件
 
@@ -146,22 +148,20 @@ $env:DATABASE_URL="postgresql://USER:PASSWORD@HOST:PORT/DATABASE"
 python crawler.py
 ```
 
-## Jetson Orin Nano 擴充
+## 鏡頭與 AI 擴充
 
-因為攝像頭型號尚未確定，本專題不把程式寫死在某個攝像頭型號上。未來只要攝像頭能被 OpenCV 讀取，就能接到同一套資料流程。
+現在版本使用瀏覽器 `getUserMedia` 開啟鏡頭，不需要外接攝像頭或指定型號。後續可以加入：
 
-目前可用模擬事件測試資料庫與網站：
-
-```powershell
-python jetson_event.py --location "A區入口" --status "未戴安全帽" --confidence 0.92
-```
+- OCR：讀取包裝上的 PET、PP、PVC、紙容器等文字。
+- 圖像分類：判斷寶特瓶、鋁箔包、紙餐盒、鐵鋁罐等物品。
+- 使用者回饋：讓使用者修正結果，累積成訓練資料。
 
 ## 建議小組分工
 
-- 林偲駒：Flask 路由與頁面整合
-- 邱冠凱：PostgreSQL 資料表與 Render 部署
-- 黃舒禾：Playwright 動態爬蟲與資料清理
-- 方守東：資料分析頁、Jetson 擴充與報告整理
+- 林偲駒：Flask routes、Jinja templates、網站整合
+- 邱冠凱：PostgreSQL schema、Render 設定、部署測試
+- 黃舒禾：Playwright crawler、回收規則資料清理
+- 方守東：資料分析、鏡頭互動頁、簡報與影片腳本
 
 ## 報告繳交提醒
 
@@ -170,5 +170,5 @@ python jetson_event.py --location "A區入口" --status "未戴安全帽" --conf
 - 1080p MP4 影片
 - 動機與問題說明
 - 程式碼講解
-- 爬蟲、資料庫、資料分析、部署流程展示
+- 鏡頭功能、資料庫、爬蟲、資料分析、部署流程展示
 - 心得與未來落地想像

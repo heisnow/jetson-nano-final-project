@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+
+{% block title %}回收資料庫 / {{ project.name }}{% endblock %}
+
+{% block content %}
+<section class="panel">
+  <h1>回收規則資料庫</h1>
+  <p>資料可由爬蟲整理地方環保局或環境部公開資訊，也可以由使用者掃描後人工確認補充。</p>
+  <form class="filter" method="get">
+    <input type="search" name="q" value="{{ keyword }}" placeholder="搜尋 PET、鋁箔包、紙餐盒、電池">
+    <select name="category">
+      <option value="">全部分類</option>
+      {% for category in categories %}
+      <option value="{{ category }}" {% if category == selected_category %}selected{% endif %}>{{ category }}</option>
+      {% endfor %}
+    </select>
+    <button class="button" type="submit">搜尋</button>
+  </form>
+</section>
+
+<section class="rule-list" style="margin-top: 16px;">
+  {% for rule in rules %}
+  <article class="rule">
+    <h2>{{ rule.item_name }}</h2>
+    <div class="meta">
+      <span>{{ rule.category }}</span>
+      <span>{{ rule.material }}</span>
+      <span>{{ rule.city }}</span>
+      {% if rule.keywords %}<span>{{ rule.keywords }}</span>{% endif %}
+    </div>
+    <p>{{ rule.disposal_steps }}</p>
+    {% if rule.source_url.startswith("http") %}
+    <a href="{{ rule.source_url }}" target="_blank" rel="noreferrer">查看來源</a>
+    {% endif %}
+  </article>
+  {% else %}
+  <article class="panel">
+    <h2>沒有符合條件的資料</h2>
+    <p>可以換一個關鍵字，或先執行 crawler 匯入資料。</p>
+  </article>
+  {% endfor %}
+</section>
+{% endblock %}

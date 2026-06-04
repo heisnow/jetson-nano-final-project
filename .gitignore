@@ -2,5 +2,6 @@
 __pycache__/
 *.pyc
 .env
+ecolens.db
 safety_insight.db
 .DS_Store

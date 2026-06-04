@@ -1,0 +1,130 @@
+{% extends "base.html" %}
+
+{% block title %}鏡頭掃描 / {{ project.name }}{% endblock %}
+
+{% block content %}
+<section class="hero">
+  <div class="panel">
+    <div class="tag">Browser Camera</div>
+    <h1>用你現在的裝置鏡頭掃描</h1>
+    <p>電腦會使用前鏡頭；手機可切換前後鏡頭。請把包裝、瓶罐或標籤對準鏡頭，再把畫面中看到的材質標示輸入下方欄位進行分析。</p>
+    <div class="actions">
+      <button class="button" id="startCamera" type="button">開啟鏡頭</button>
+      <button class="button secondary" id="switchCamera" type="button">切換鏡頭</button>
+      <button class="button warning" id="stopCamera" type="button">停止鏡頭</button>
+    </div>
+  </div>
+
+  <aside class="panel">
+    <h2>建議輸入方式</h2>
+    <ul>
+      <li>看到瓶身標示：輸入 PET、PP、PVC 或寶特瓶。</li>
+      <li>看到包裝文字：輸入鋁箔包、紙容器、手搖飲杯。</li>
+      <li>看不清楚時：先拍照觀察，再人工補上看到的文字。</li>
+    </ul>
+  </aside>
+</section>
+
+<section class="grid two">
+  <article class="panel">
+    <h2>鏡頭畫面</h2>
+    <div class="camera-frame">
+      <video id="camera" autoplay playsinline muted></video>
+      <div class="camera-placeholder" id="cameraPlaceholder">
+        <p>按下「開啟鏡頭」後，瀏覽器會詢問相機權限。</p>
+      </div>
+    </div>
+  </article>
+
+  <article class="panel">
+    <h2>標籤文字分析</h2>
+    <p>目前先以文字與規則資料庫分析；之後可以串接 OCR 或影像模型，自動畫出物品類型。</p>
+    <textarea id="scanText" placeholder="例如：PET 寶特瓶、PP 塑膠杯、鋁箔包、紙餐盒油污嚴重"></textarea>
+    <div class="actions">
+      <button class="button" id="analyzeButton" type="button">分析分類</button>
+    </div>
+    <div class="panel result-box" id="resultBox" style="display:none; margin-top: 16px;">
+      <h2 id="resultTitle">辨識結果</h2>
+      <p id="resultMessage"></p>
+      <div class="meta" id="resultMeta"></div>
+      <p id="resultSteps"></p>
+    </div>
+  </article>
+</section>
+
+<section class="panel">
+  <h2>目前資料庫已收錄</h2>
+  <div class="badge-row">
+    {% for rule in rules %}
+    <span class="badge">{{ rule.item_name }}</span>
+    {% endfor %}
+  </div>
+</section>
+
+<script>
+  let stream = null;
+  let useBackCamera = true;
+  const video = document.getElementById("camera");
+  const placeholder = document.getElementById("cameraPlaceholder");
+
+  async function startCamera() {
+    if (stream) {
+      stopCamera();
+    }
+    const constraints = {
+      video: {
+        facingMode: useBackCamera ? { ideal: "environment" } : "user"
+      },
+      audio: false
+    };
+    try {
+      stream = await navigator.mediaDevices.getUserMedia(constraints);
+      video.srcObject = stream;
+      placeholder.style.display = "none";
+    } catch (error) {
+      placeholder.style.display = "grid";
+      placeholder.innerHTML = "<p>無法開啟鏡頭。請確認瀏覽器權限，Render 網址需使用 HTTPS。</p>";
+    }
+  }
+
+  function stopCamera() {
+    if (stream) {
+      stream.getTracks().forEach(track => track.stop());
+      stream = null;
+    }
+    video.srcObject = null;
+    placeholder.style.display = "grid";
+  }
+
+  document.getElementById("startCamera").addEventListener("click", startCamera);
+  document.getElementById("switchCamera").addEventListener("click", async () => {
+    useBackCamera = !useBackCamera;
+    await startCamera();
+  });
+  document.getElementById("stopCamera").addEventListener("click", stopCamera);
+
+  document.getElementById("analyzeButton").addEventListener("click", async () => {
+    const text = document.getElementById("scanText").value;
+    const response = await fetch("{{ url_for('analyze_api') }}", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        text,
+        device_type: useBackCamera ? "mobile/back-or-browser-camera" : "front-camera"
+      })
+    });
+    const result = await response.json();
+    const resultBox = document.getElementById("resultBox");
+    resultBox.style.display = "block";
+    resultBox.classList.toggle("low", result.confidence < 0.5);
+    document.getElementById("resultTitle").textContent = result.item_name;
+    document.getElementById("resultMessage").textContent = result.message;
+    document.getElementById("resultMeta").innerHTML = `
+      <span>${result.category}</span>
+      <span>${result.material}</span>
+      <span>可信度 ${Math.round(result.confidence * 100)}%</span>
+    `;
+    document.getElementById("resultSteps").textContent = result.disposal_steps;
+  });
+</script>
+{% endblock %}

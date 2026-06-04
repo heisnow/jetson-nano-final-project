@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: safety-insight-flask
+    name: ecolens-flask
     runtime: python
     buildCommand: pip install -r requirements.txt
     startCommand: gunicorn app:app
@@ -9,8 +9,8 @@ services:
         value: 3.12.7
       - key: DATABASE_URL
         fromDatabase:
-          name: safety-insight-postgres
+          name: ecolens-postgres
           property: connectionString
 
 databases:
-  - name: safety-insight-postgres
+  - name: ecolens-postgres

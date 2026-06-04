@@ -1,35 +1,17 @@
 from __future__ import annotations
 
 import argparse
-import re
-from datetime import date
 from urllib.parse import urljoin
 
 from bs4 import BeautifulSoup
 from playwright.sync_api import sync_playwright
 
-from database import SessionLocal, init_db, upsert_article
+from database import SessionLocal, init_db, upsert_rule
 
 
-DEFAULT_URL = "https://www.osha.gov.tw/48110/48417/48419/lpsimplelist"
-DEFAULT_SOURCE_NAME = "勞動部職業安全衛生署新聞稿"
-RISK_TERMS = ["安全帽", "工安", "職安", "職災", "營造", "墜落", "高處", "機械", "感電", "高溫", "防護", "教育訓練"]
-NON_ARTICLE_TERMS = [
-    "按Enter",
-    "回首頁",
-    "網站導覽",
-    "English",
-    "RSS",
-    "意見信箱",
-    "雙語辭彙",
-    "首頁",
-    "新聞公告",
-    "顯示條件查詢",
-    "第一頁",
-    "下一頁",
-    "最後一頁",
-    "回上一頁",
-]
+DEFAULT_URL = "https://recycle.moenv.gov.tw/"
+DEFAULT_SOURCE_NAME = "環境部資源回收公開資訊"
+KEYWORDS = ["回收", "資源", "分類", "容器", "塑膠", "紙", "鋁", "玻璃", "電池", "廚餘"]
 
 
 def fetch_dynamic_html(url: str) -> str:
@@ -43,87 +25,73 @@ def fetch_dynamic_html(url: str) -> str:
         return html
 
 
-def parse_roc_or_ad_date(raw_text: str) -> date | None:
-    match = re.search(r"(\d{3,4})[-/.年](\d{1,2})[-/.月](\d{1,2})", raw_text)
-    if not match:
-        return None
+def infer_category(text: str) -> str:
+    if any(term in text for term in ["寶特瓶", "PET", "塑膠", "PP", "PVC"]):
+        return "資源回收 / 塑膠類"
+    if any(term in text for term in ["紙容器", "紙餐盒", "紙杯", "紙盒"]):
+        return "資源回收 / 紙容器"
+    if any(term in text for term in ["鋁箔", "鐵罐", "鋁罐", "金屬"]):
+        return "資源回收 / 金屬類"
+    if any(term in text for term in ["玻璃", "玻璃瓶"]):
+        return "資源回收 / 玻璃類"
+    if "電池" in text:
+        return "資源回收 / 乾電池"
+    if "廚餘" in text:
+        return "廚餘"
+    return "回收資訊"
 
-    year = int(match.group(1))
-    month = int(match.group(2))
-    day = int(match.group(3))
-    if year < 1911:
-        year += 1911
 
-    try:
-        return date(year, month, day)
-    except ValueError:
-        return None
-
-
-def categorize(text: str) -> str:
-    if any(term in text for term in ["安全帽", "防護具", "個人防護"]):
-        return "個人防護"
-    if any(term in text for term in ["墜落", "高處", "營造"]):
-        return "營造安全"
-    if any(term in text for term in ["機械", "夾捲", "停機"]):
-        return "機械安全"
-    if any(term in text for term in ["高溫", "熱危害", "健康"]):
-        return "職業衛生"
-    if any(term in text for term in ["教育", "訓練", "宣導"]):
-        return "職安宣導"
-    return "工安新聞"
+def infer_material(text: str) -> str:
+    for material in ["PET", "PP", "PVC", "紙容器", "鋁箔", "金屬", "玻璃", "電池", "廚餘"]:
+        if material in text:
+            return material
+    if "塑膠" in text:
+        return "塑膠"
+    if "紙" in text:
+        return "紙類"
+    return "未標示"
 
 
 def extract_keywords(text: str) -> str:
-    return ",".join(term for term in RISK_TERMS if term in text)
+    return ",".join(keyword for keyword in KEYWORDS if keyword in text)
 
 
-def extract_articles(html: str, base_url: str, source_name: str, limit: int) -> list[dict[str, object]]:
+def extract_rules(html: str, base_url: str, source_name: str, limit: int) -> list[dict[str, object]]:
     soup = BeautifulSoup(html, "html.parser")
     records: list[dict[str, object]] = []
-    seen_urls: set[str] = set()
-    is_osha_news_page = "osha.gov.tw/48110/48417/48419" in base_url
+    seen: set[str] = set()
 
     for anchor in soup.select("a[href]"):
         title = " ".join(anchor.get_text(" ", strip=True).split())
         href = anchor.get("href", "")
-        if len(title) < 8:
+        if len(title) < 4:
             continue
-        if any(skip in title for skip in NON_ARTICLE_TERMS):
+        if any(skip in title for skip in ["回首頁", "網站導覽", "English", "登入", "搜尋"]):
+            continue
+
+        context = anchor.find_parent(["li", "tr", "article", "div"]) or anchor
+        context_text = " ".join(context.get_text(" ", strip=True).split())
+        combined = f"{title} {context_text}"
+        keywords = extract_keywords(combined)
+        if not keywords and len(records) >= 4:
             continue
 
         source_url = urljoin(base_url, href)
-        if source_url in seen_urls:
+        key = f"{title}|{source_url}"
+        if key in seen:
             continue
-        if href.startswith("javascript:") or href == "#":
-            continue
+        seen.add(key)
 
-        context_node = anchor.find_parent(["li", "tr", "article", "div"]) or anchor
-        context_text = " ".join(context_node.get_text(" ", strip=True).split())
-        combined = f"{title} {context_text}"
-        keywords = extract_keywords(combined)
-        published_at = parse_roc_or_ad_date(context_text)
-
-        if is_osha_news_page and "/48110/48417/48419/" not in source_url:
-            continue
-        if is_osha_news_page and not source_url.endswith("/post"):
-            continue
-        if not is_osha_news_page and "/post" not in source_url and not published_at and not keywords:
-            continue
-
-        if not keywords and len(records) >= 5:
-            continue
-
-        seen_urls.add(source_url)
         records.append(
             {
-                "title": title[:255],
-                "summary": context_text[:320] if context_text else title,
+                "item_name": title[:120],
+                "category": infer_category(combined),
+                "material": infer_material(combined),
+                "disposal_steps": context_text[:360] or "請依地方環保局公告進行分類與回收。",
+                "city": "通用",
                 "source_name": source_name,
                 "source_url": source_url,
-                "category": categorize(combined),
-                "published_at": published_at,
-                "keywords": keywords or "職安",
+                "keywords": keywords or "回收",
             }
         )
         if len(records) >= limit:
@@ -132,13 +100,13 @@ def extract_articles(html: str, base_url: str, source_name: str, limit: int) -> 
     return records
 
 
-def save_articles(records: list[dict[str, object]]) -> tuple[int, int]:
+def save_rules(records: list[dict[str, object]]) -> tuple[int, int]:
     init_db(seed=False)
     created = 0
     updated = 0
     with SessionLocal() as session:
         for record in records:
-            if upsert_article(session, record):
+            if upsert_rule(session, record):
                 created += 1
             else:
                 updated += 1
@@ -147,7 +115,7 @@ def save_articles(records: list[dict[str, object]]) -> tuple[int, int]:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Crawl dynamic safety web pages into the project database.")
+    parser = argparse.ArgumentParser(description="Crawl recycling information into EcoLens database.")
     parser.add_argument("--url", default=DEFAULT_URL, help="Target dynamic page URL.")
     parser.add_argument("--source-name", default=DEFAULT_SOURCE_NAME, help="Source name saved in DB.")
     parser.add_argument("--limit", type=int, default=12, help="Maximum records to save.")
@@ -155,14 +123,14 @@ def main() -> None:
     args = parser.parse_args()
 
     html = fetch_dynamic_html(args.url)
-    records = extract_articles(html, args.url, args.source_name, args.limit)
+    records = extract_rules(html, args.url, args.source_name, args.limit)
 
     if args.dry_run:
         for record in records:
-            print(f"- {record['title']} / {record['category']} / {record['source_url']}")
+            print(f"- {record['item_name']} / {record['category']} / {record['source_url']}")
         return
 
-    created, updated = save_articles(records)
+    created, updated = save_rules(records)
     print(f"Crawler finished. Created {created}, updated {updated}.")
 
 

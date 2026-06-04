@@ -3,7 +3,7 @@
 {% block content %}
 <section class="hero">
   <div class="panel">
-    <div class="tag">Final Project / 可落地的工安資料產品</div>
+    <div class="tag">生活影像辨識助手</div>
     <h1>{{ project.name }}</h1>
     <p>{{ project.summary }}</p>
     <p>{{ project.motivation }}</p>
@@ -13,8 +13,8 @@
       {% endfor %}
     </div>
     <div class="actions">
-      <a class="button" href="{{ url_for('articles') }}">查看資料</a>
-      <a class="button secondary" href="{{ url_for('analysis') }}">查看分析</a>
+      <a class="button" href="{{ url_for('scan') }}">開啟鏡頭掃描</a>
+      <a class="button secondary" href="{{ url_for('rules') }}">查看回收規則</a>
     </div>
   </div>
 
@@ -22,52 +22,58 @@
     <h2>目前資料狀態</h2>
     <div class="grid">
       <div class="stat">
-        <strong>{{ article_count }}</strong>
-        <span>工安資料</span>
+        <strong>{{ rule_count }}</strong>
+        <span>回收規則</span>
       </div>
       <div class="stat">
-        <strong>{{ event_count }}</strong>
-        <span>Jetson 事件</span>
+        <strong>{{ scan_count }}</strong>
+        <span>掃描紀錄</span>
       </div>
       <div class="stat">
         <strong>{{ project.team_members|length }}</strong>
         <span>組員</span>
       </div>
     </div>
-    <h2 style="margin-top: 22px;">組員名單</h2>
+    <h2 style="margin-top: 22px;">可以分析什麼</h2>
     <ul>
-      {% for member in project.team_members %}
-      <li>{{ member }}</li>
-      {% endfor %}
+      <li>包裝上的 PET、PP、PVC、紙容器等標籤文字</li>
+      <li>寶特瓶、鋁箔包、手搖飲杯、紙餐盒等生活物品</li>
+      <li>使用者最常混淆的回收分類</li>
     </ul>
   </aside>
 </section>
 
 <section class="grid two">
   <article class="panel">
-    <h2>最新工安資料</h2>
-    <div class="article-list">
-      {% for article in latest_articles %}
-      <div class="article">
-        <h3>{{ article.title }}</h3>
+    <h2>常見回收規則</h2>
+    <div class="rule-list">
+      {% for rule in latest_rules %}
+      <div class="rule">
+        <h3>{{ rule.item_name }}</h3>
         <div class="meta">
-          <span>{{ article.category }}</span>
-          <span>{{ article.source_name }}</span>
-          {% if article.published_at %}<span>{{ article.published_at }}</span>{% endif %}
+          <span>{{ rule.category }}</span>
+          <span>{{ rule.material }}</span>
         </div>
+        <p>{{ rule.disposal_steps }}</p>
       </div>
       {% endfor %}
     </div>
   </article>
 
   <article class="panel">
-    <h2>Jetson 原型事件</h2>
-    <div class="timeline">
-      {% for event in latest_events %}
-      <div class="event">
-        <h3>{{ event.helmet_status }} / {{ event.location }}</h3>
-        <p>信心值 {{ "%.0f"|format(event.confidence * 100) }}%。{{ event.device_note }}</p>
+    <h2>近期掃描紀錄</h2>
+    <div class="rule-list">
+      {% for scan in latest_scans %}
+      <div class="rule">
+        <h3>{{ scan.guessed_item }}</h3>
+        <div class="meta">
+          <span>{{ scan.suggested_category }}</span>
+          <span>可信度 {{ "%.0f"|format(scan.confidence * 100) }}%</span>
+        </div>
+        <p>{{ scan.notes }}</p>
       </div>
+      {% else %}
+      <p>目前還沒有掃描紀錄。打開鏡頭頁，輸入包裝文字試試看。</p>
       {% endfor %}
     </div>
   </article>
