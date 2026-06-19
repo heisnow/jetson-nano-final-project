@@ -58,6 +58,7 @@
     <p id="ocrStatus"></p>
     <div class="actions">
       <button class="button secondary" id="ocrButton" type="button">OCR 讀取照片文字</button>
+      <button class="button secondary" id="visualGuessButton" type="button">影像初步分類</button>
       <button class="button" id="analyzeButton" type="button">分析分類</button>
       <button class="button secondary" id="webLookupButton" type="button">上網查詢補強</button>
     </div>
@@ -212,6 +213,111 @@
       status.textContent = "OCR 辨識失敗，請改用快捷按鈕或手動輸入。";
     }
   });
+
+  document.getElementById("visualGuessButton").addEventListener("click", async () => {
+    const status = document.getElementById("ocrStatus");
+    if (!hasSnapshot && !captureSnapshot()) {
+      return;
+    }
+    const guess = guessFromSnapshotPixels();
+    if (!guess) {
+      status.textContent = "影像沒有明顯紙箱特徵。請改用 OCR、快捷按鈕或手動輸入物品線索。";
+      return;
+    }
+    const textArea = document.getElementById("scanText");
+    textArea.value = textArea.value ? `${textArea.value} ${guess.token}` : guess.token;
+    status.textContent = guess.message;
+    await runAnalysis("{{ url_for('analyze_api') }}");
+  });
+
+  function guessFromSnapshotPixels() {
+    const context = snapshotCanvas.getContext("2d");
+    const width = snapshotCanvas.width;
+    const height = snapshotCanvas.height;
+    if (!width || !height) {
+      return null;
+    }
+
+    const sampleWidth = Math.min(320, width);
+    const sampleHeight = Math.max(1, Math.round(height * sampleWidth / width));
+    const sampleCanvas = document.createElement("canvas");
+    sampleCanvas.width = sampleWidth;
+    sampleCanvas.height = sampleHeight;
+    const sampleContext = sampleCanvas.getContext("2d");
+    sampleContext.drawImage(snapshotCanvas, 0, 0, sampleWidth, sampleHeight);
+    const pixels = sampleContext.getImageData(0, 0, sampleWidth, sampleHeight).data;
+
+    let total = 0;
+    let cardboardPixels = 0;
+    let darkPixels = 0;
+    for (let i = 0; i < pixels.length; i += 16) {
+      const r = pixels[i];
+      const g = pixels[i + 1];
+      const b = pixels[i + 2];
+      const a = pixels[i + 3];
+      if (a < 180) {
+        continue;
+      }
+      total += 1;
+      const hsl = rgbToHsl(r, g, b);
+      const brightness = (r + g + b) / 3;
+      const isCardboardBrown =
+        hsl.h >= 18 &&
+        hsl.h <= 52 &&
+        hsl.s >= 0.16 &&
+        hsl.s <= 0.72 &&
+        hsl.l >= 0.22 &&
+        hsl.l <= 0.78 &&
+        r >= b + 18 &&
+        g >= b + 8;
+      if (isCardboardBrown) {
+        cardboardPixels += 1;
+      }
+      if (brightness < 45) {
+        darkPixels += 1;
+      }
+    }
+
+    if (!total) {
+      return null;
+    }
+    const cardboardRatio = cardboardPixels / total;
+    const darkRatio = darkPixels / total;
+    if (cardboardRatio >= 0.18 && darkRatio < 0.55) {
+      return {
+        token: "棕色紙箱 紙板 瓦楞紙 cardboard box",
+        message: `影像初步判斷像棕色紙箱，棕色紙板比例約 ${Math.round(cardboardRatio * 100)}%。`
+      };
+    }
+    return null;
+  }
+
+  function rgbToHsl(r, g, b) {
+    r /= 255;
+    g /= 255;
+    b /= 255;
+    const max = Math.max(r, g, b);
+    const min = Math.min(r, g, b);
+    let h = 0;
+    let s = 0;
+    const l = (max + min) / 2;
+    if (max !== min) {
+      const d = max - min;
+      s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+      switch (max) {
+        case r:
+          h = (g - b) / d + (g < b ? 6 : 0);
+          break;
+        case g:
+          h = (b - r) / d + 2;
+          break;
+        default:
+          h = (r - g) / d + 4;
+      }
+      h *= 60;
+    }
+    return { h, s, l };
+  }
 
   async function runAnalysis(endpoint) {
     const text = document.getElementById("scanText").value;

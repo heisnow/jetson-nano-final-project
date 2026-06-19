@@ -70,6 +70,16 @@ DEMO_RULES = [
         "keywords": "紙餐盒,便當盒,外送盒,紙容器",
     },
     {
+        "item_name": "紙箱",
+        "category": "資源回收 / 廢紙類",
+        "material": "瓦楞紙板",
+        "disposal_steps": "先移除膠帶、塑膠包材與非紙類填充物，保持乾燥並壓平後投入廢紙類回收；若受潮、沾油或沾滿食物殘渣，通常不適合回收。",
+        "city": "通用",
+        "source_name": "示範資料：生活回收規則",
+        "source_url": "demo://cardboard-box",
+        "keywords": "紙箱,瓦楞紙箱,紙板,棕色紙箱,包裹箱,外箱,cardboard,carton box,brown box",
+    },
+    {
         "item_name": "鐵鋁罐",
         "category": "資源回收 / 金屬類",
         "material": "鋁或鐵",
