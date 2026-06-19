@@ -89,6 +89,56 @@ DEMO_RULES = [
         "source_url": "demo://battery",
         "keywords": "電池,乾電池,鈕扣電池,回收點",
     },
+    {
+        "item_name": "玻璃瓶",
+        "category": "資源回收 / 玻璃類",
+        "material": "玻璃",
+        "disposal_steps": "倒空內容物，簡單沖洗，避免破裂割傷，依地方規定投入玻璃容器回收。",
+        "city": "通用",
+        "source_name": "示範資料：生活回收規則",
+        "source_url": "demo://glass-bottle",
+        "keywords": "玻璃瓶,玻璃罐,酒瓶,醬料瓶",
+    },
+    {
+        "item_name": "塑膠袋",
+        "category": "依地方規定回收",
+        "material": "PE 或塑膠薄膜",
+        "disposal_steps": "乾淨塑膠袋可集中回收；若沾滿油污、湯汁或食物殘渣，通常應作一般垃圾處理。",
+        "city": "通用",
+        "source_name": "示範資料：生活回收規則",
+        "source_url": "demo://plastic-bag",
+        "keywords": "塑膠袋,PE,塑膠薄膜,購物袋",
+    },
+    {
+        "item_name": "保麗龍餐盒",
+        "category": "依地方規定回收",
+        "material": "PS 保麗龍",
+        "disposal_steps": "乾淨保麗龍可依地方規定回收；若沾油或食物殘渣，需先清潔，無法清潔時作一般垃圾。",
+        "city": "通用",
+        "source_name": "示範資料：生活回收規則",
+        "source_url": "demo://styrofoam-box",
+        "keywords": "保麗龍,PS,保麗龍餐盒,泡棉",
+    },
+    {
+        "item_name": "廚餘",
+        "category": "廚餘",
+        "material": "食物殘渣",
+        "disposal_steps": "瀝乾水分後投入廚餘桶；骨頭、貝殼、衛生紙等不可混入，依地方規定分類生熟廚餘。",
+        "city": "通用",
+        "source_name": "示範資料：生活回收規則",
+        "source_url": "demo://food-waste",
+        "keywords": "廚餘,食物殘渣,剩菜,果皮",
+    },
+    {
+        "item_name": "衛生紙",
+        "category": "一般垃圾",
+        "material": "污染紙類",
+        "disposal_steps": "使用過的衛生紙、紙巾多屬一般垃圾，不建議投入紙類回收。",
+        "city": "通用",
+        "source_name": "示範資料：生活回收規則",
+        "source_url": "demo://tissue",
+        "keywords": "衛生紙,紙巾,污染紙類,一般垃圾",
+    },
 ]
 
 
@@ -100,9 +150,8 @@ def init_db(seed: bool = True) -> None:
 
 def seed_demo_data() -> None:
     with SessionLocal() as session:
-        rule_count = session.scalar(select(func.count()).select_from(RecyclingRule)) or 0
-        if rule_count == 0:
-            session.add_all(RecyclingRule(**item) for item in DEMO_RULES)
+        for item in DEMO_RULES:
+            upsert_rule(session, item)
         session.commit()
 
 

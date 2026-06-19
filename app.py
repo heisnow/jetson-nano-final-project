@@ -1,9 +1,17 @@
 from __future__ import annotations
 
 import os
+import csv
+import io
+import warnings
 from collections import Counter
+from urllib.parse import urlparse
 
 import click
+import requests
+from requests.exceptions import SSLError
+from urllib3.exceptions import InsecureRequestWarning
+from bs4 import BeautifulSoup
 from flask import Flask, jsonify, render_template, request
 from sqlalchemy import desc, func, or_, select
 
@@ -26,8 +34,8 @@ PROJECT = {
     "summary": (
         "EcoLens 是一個貼近日常生活的 Flask 專題。使用者打開網頁即可啟用裝置鏡頭，"
         "手機可使用前後鏡頭，電腦可使用前鏡頭，將包裝、瓶罐、紙盒或標籤對準鏡頭。"
-        "目前版本先以使用者輸入的標籤文字與回收規則資料庫進行分析，未來可串接 OCR "
-        "與圖像模型，自動讀取畫面文字並判斷物品類型。"
+        "目前版本結合 OCR、使用者輸入線索、回收規則資料庫與網路搜尋摘要，"
+        "先大致判斷垃圾分類；未來可串接圖像模型提高自動辨識能力。"
     ),
     "motivation": (
         "每天都有人站在垃圾桶前猶豫：這個杯子能不能回收？鋁箔包算紙類嗎？"
@@ -82,6 +90,26 @@ def create_app() -> Flask:
         text = str(payload.get("text", "")).strip()
         device_type = str(payload.get("device_type", "browser camera")).strip() or "browser camera"
         result = analyze_text(text)
+        record = save_scan_record(
+            input_text=text,
+            guessed_item=result["item_name"],
+            suggested_category=result["category"],
+            confidence=result["confidence"],
+            notes=result["disposal_steps"],
+            device_type=device_type,
+        )
+        result["record_id"] = record.id
+        return jsonify(result)
+
+    @app.post("/api/web-lookup")
+    def web_lookup_api():
+        payload = request.get_json(silent=True) or {}
+        text = str(payload.get("text", "")).strip()
+        device_type = str(payload.get("device_type", "web lookup")).strip() or "web lookup"
+        if not text:
+            return jsonify({"status": "error", "message": "請先提供照片 OCR 或物品線索。"}), 400
+
+        result = analyze_with_web_lookup(text)
         record = save_scan_record(
             input_text=text,
             guessed_item=result["item_name"],
@@ -256,6 +284,286 @@ def analyze_text(text: str) -> dict[str, object]:
         "source_name": "",
         "source_url": "",
         "message": "目前資訊不足，系統無法自動判斷。",
+    }
+
+
+CATEGORY_HINTS = [
+    {
+        "category": "資源回收 / 塑膠類",
+        "item": "塑膠容器",
+        "material": "PET / PP / PVC 或其他塑膠",
+        "terms": ["寶特瓶", "pet", "pp", "pvc", "塑膠瓶", "飲料瓶", "塑膠容器", "plastic bottle", "plastic cup"],
+        "steps": "若是乾淨塑膠容器，請倒空內容物、簡單沖洗、壓扁後投入塑膠類回收。",
+    },
+    {
+        "category": "資源回收 / 塑膠杯",
+        "item": "手搖飲塑膠杯",
+        "material": "PP 或 PET 塑膠",
+        "terms": ["手搖飲", "塑膠杯", "飲料杯", "杯膜", "吸管"],
+        "steps": "倒掉剩餘飲料，杯膜與吸管分開，杯身沖洗後依地方規定投入塑膠類回收。",
+    },
+    {
+        "category": "資源回收 / 紙容器",
+        "item": "紙容器",
+        "material": "紙、淋膜紙或複合紙材",
+        "terms": ["紙容器", "紙餐盒", "紙杯", "紙盒", "牛奶盒", "鋁箔包", "利樂包", "paper carton", "carton"],
+        "steps": "清空內容物，若可清潔請簡單沖洗或擦乾；油污嚴重時需依地方規定改作一般垃圾。",
+    },
+    {
+        "category": "資源回收 / 金屬類",
+        "item": "鐵鋁罐",
+        "material": "鐵、鋁或其他金屬",
+        "terms": ["鐵罐", "鋁罐", "易開罐", "金屬罐", "鐵鋁罐", "aluminum can", "tin can"],
+        "steps": "倒空內容物，簡單沖洗，壓扁後投入金屬容器回收。",
+    },
+    {
+        "category": "資源回收 / 玻璃類",
+        "item": "玻璃瓶",
+        "material": "玻璃",
+        "terms": ["玻璃瓶", "玻璃罐", "酒瓶", "醬料瓶", "glass bottle", "glass jar"],
+        "steps": "倒空內容物並簡單沖洗，避免破裂割傷，依地方規定投入玻璃容器回收。",
+    },
+    {
+        "category": "資源回收 / 乾電池",
+        "item": "電池",
+        "material": "金屬與化學材料",
+        "terms": ["電池", "乾電池", "鈕扣電池", "battery", "battery recycle"],
+        "steps": "不可丟一般垃圾，請投入超商、量販店、學校或清潔隊提供的電池回收點。",
+    },
+    {
+        "category": "依地方規定回收",
+        "item": "塑膠袋或保麗龍",
+        "material": "塑膠薄膜或 PS 保麗龍",
+        "terms": ["塑膠袋", "購物袋", "保麗龍", "保麗龍餐盒", "ps", "styrofoam"],
+        "steps": "乾淨時可能可依地方規定回收；若沾滿油污、湯汁或食物殘渣，通常需作一般垃圾。",
+    },
+    {
+        "category": "廚餘",
+        "item": "廚餘",
+        "material": "食物殘渣",
+        "terms": ["廚餘", "剩菜", "果皮", "菜葉", "食物殘渣", "food waste"],
+        "steps": "瀝乾水分後投入廚餘桶；骨頭、貝殼、衛生紙等不可混入，請依地方規定分類。",
+    },
+    {
+        "category": "一般垃圾",
+        "item": "一般垃圾",
+        "material": "不可回收或污染物",
+        "terms": ["衛生紙", "紙巾", "口罩", "油污嚴重", "髒污", "污染紙", "不可回收"],
+        "steps": "若物品沾滿油污、食物殘渣或屬衛生用品，通常不適合回收，請作一般垃圾處理。",
+    },
+]
+
+TAIPEI_RECYCLING_ROWS: list[dict[str, str]] | None = None
+
+
+def analyze_with_web_lookup(text: str) -> dict[str, object]:
+    local_result = analyze_text(text)
+    dataset_results = search_taipei_recycling_dataset(text)
+    web_results = dataset_results + search_recycling_web(text)
+    web_corpus = " ".join(
+        [text, *[f"{item['title']} {item['snippet']}" for item in web_results]]
+    )
+    web_result = infer_from_dataset_result(dataset_results[0]) if dataset_results else infer_from_text_corpus(web_corpus)
+
+    if web_result["confidence"] > local_result["confidence"] or local_result["item_name"] == "未知物品":
+        result = web_result
+        result["message"] = "已結合公開資料或網路搜尋摘要推測垃圾大類，請再依地方規定確認。"
+    else:
+        result = local_result
+        result["message"] = "本地規則已有較明確結果，並已附上公開資料或網路查詢摘要供確認。"
+
+    result["web_results"] = web_results
+    result["lookup_query"] = build_lookup_query(text)
+    result["source_name"] = result.get("source_name", "網路搜尋摘要")
+    result["source_url"] = result.get("source_url", "")
+    return result
+
+
+def search_taipei_recycling_dataset(text: str) -> list[dict[str, str]]:
+    rows = load_taipei_recycling_rows()
+    if not rows:
+        return []
+    query_terms = build_query_terms(text)
+    matches: list[tuple[int, dict[str, str]]] = []
+    for row in rows:
+        title = row.get("子類別", "")
+        major = row.get("大類別", "")
+        description = row.get("說明", "")
+        pickup_time = row.get("回收時間", "")
+        corpus = normalize_lookup_text(f"{title} {major} {description} {pickup_time}")
+        score = sum(max(1, len(term)) for term in query_terms if term and term in corpus)
+        if score > 0:
+            matches.append(
+                (
+                    score,
+                    {
+                        "title": title or major or "臺北市回收分類資料",
+                        "snippet": f"{major} / {description} / 回收時間：{pickup_time}",
+                        "url": "https://data.taipei/dataset/detail?id=74643872-ee76-4727-bd02-d73b536eaad7",
+                        "domain": "data.taipei",
+                        "major_category": major,
+                        "sub_category": title,
+                        "pickup_time": pickup_time,
+                        "score": str(score),
+                    },
+                )
+            )
+
+    matches.sort(key=lambda item: item[0], reverse=True)
+    return [item[1] for item in matches[:5]]
+
+
+def load_taipei_recycling_rows() -> list[dict[str, str]]:
+    global TAIPEI_RECYCLING_ROWS
+    if TAIPEI_RECYCLING_ROWS is not None:
+        return TAIPEI_RECYCLING_ROWS
+
+    url = "https://data.taipei/api/frontstage/tpeod/dataset/resource.download"
+    params = {"rid": "a4693269-1a96-4914-9c4d-cd7cfb3f3bce"}
+    try:
+        response = requests.get(url, params=params, timeout=8)
+        response.raise_for_status()
+    except SSLError:
+        try:
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", InsecureRequestWarning)
+                response = requests.get(url, params=params, timeout=8, verify=False)
+                response.raise_for_status()
+        except requests.RequestException:
+            TAIPEI_RECYCLING_ROWS = []
+            return TAIPEI_RECYCLING_ROWS
+    except requests.RequestException:
+        TAIPEI_RECYCLING_ROWS = []
+        return TAIPEI_RECYCLING_ROWS
+
+    csv_text = response.content.decode("big5", errors="replace")
+    TAIPEI_RECYCLING_ROWS = list(csv.DictReader(io.StringIO(csv_text)))
+    return TAIPEI_RECYCLING_ROWS
+
+
+def build_query_terms(text: str) -> list[str]:
+    normalized = normalize_lookup_text(text)
+    terms = {normalized}
+    for hint in CATEGORY_HINTS:
+        for term in hint["terms"]:
+            cleaned = normalize_lookup_text(str(term))
+            if cleaned and cleaned in normalized:
+                terms.add(cleaned)
+    for size in (4, 3, 2):
+        for index in range(max(0, len(normalized) - size + 1)):
+            fragment = normalized[index : index + size]
+            if fragment and not fragment.isascii():
+                terms.add(fragment)
+    return sorted(terms, key=len, reverse=True)[:24]
+
+
+def normalize_lookup_text(text: str) -> str:
+    return text.lower().replace(" ", "").replace("\n", "").replace("\r", "")
+
+
+def infer_from_dataset_result(result: dict[str, str]) -> dict[str, object]:
+    major = result.get("major_category", "")
+    sub_category = result.get("sub_category", "") or result.get("title", "回收物")
+    snippet = result.get("snippet", "")
+    combined = f"{major} {sub_category} {snippet}"
+    if "不可回收" in combined:
+        category = "一般垃圾"
+    elif "立體類" in major:
+        category = "臺北市回收 / 立體類"
+    elif "平面類" in major:
+        category = "臺北市回收 / 平面類"
+    elif "其他類" in major:
+        category = "臺北市回收 / 其他類"
+    else:
+        category = infer_from_text_corpus(combined)["category"]
+
+    return {
+        "item_name": sub_category,
+        "category": category,
+        "material": major or "公開資料分類",
+        "disposal_steps": snippet,
+        "confidence": round(min(0.9, 0.62 + int(result.get("score", "1")) / 40), 2),
+        "source_name": "臺北市資源回收分類方式",
+        "source_url": result.get("url", ""),
+    }
+
+
+def build_lookup_query(text: str) -> str:
+    return f"{text} 垃圾分類 回收 怎麼丟"
+
+
+def search_recycling_web(text: str) -> list[dict[str, str]]:
+    query = build_lookup_query(text)
+    try:
+        response = requests.get(
+            "https://duckduckgo.com/html/",
+            params={"q": query},
+            headers={"User-Agent": "Mozilla/5.0 EcoLens classroom project"},
+            timeout=8,
+        )
+        response.raise_for_status()
+    except requests.RequestException:
+        return []
+
+    soup = BeautifulSoup(response.text, "html.parser")
+    results: list[dict[str, str]] = []
+    for node in soup.select(".result"):
+        title_node = node.select_one(".result__a")
+        snippet_node = node.select_one(".result__snippet")
+        if not title_node:
+            continue
+        title = " ".join(title_node.get_text(" ", strip=True).split())
+        snippet = " ".join((snippet_node.get_text(" ", strip=True) if snippet_node else "").split())
+        url = title_node.get("href", "")
+        if not title or "圖片" in title:
+            continue
+        results.append(
+            {
+                "title": title[:140],
+                "snippet": snippet[:260],
+                "url": url,
+                "domain": urlparse(url).netloc,
+            }
+        )
+        if len(results) >= 5:
+            break
+    return results
+
+
+def infer_from_text_corpus(text: str) -> dict[str, object]:
+    normalized = text.lower().replace(" ", "")
+    best_hint: dict[str, object] | None = None
+    best_score = 0
+    for hint in CATEGORY_HINTS:
+        score = 0
+        for term in hint["terms"]:
+            cleaned = str(term).lower().replace(" ", "")
+            if cleaned and cleaned in normalized:
+                score += max(2, len(cleaned))
+        if score > best_score:
+            best_score = score
+            best_hint = hint
+
+    if best_hint is None:
+        return {
+            "item_name": "未知物品",
+            "category": "需要人工確認",
+            "material": "無法判斷",
+            "disposal_steps": "網路搜尋沒有找到足夠線索，請補充物品名稱、材質標示或使用者修正分類。",
+            "confidence": 0.2,
+            "source_name": "網路搜尋摘要",
+            "source_url": "",
+        }
+
+    confidence = min(0.88, 0.36 + best_score / 30)
+    return {
+        "item_name": best_hint["item"],
+        "category": best_hint["category"],
+        "material": best_hint["material"],
+        "disposal_steps": best_hint["steps"],
+        "confidence": round(confidence, 2),
+        "source_name": "網路搜尋摘要",
+        "source_url": "",
     }
 
 

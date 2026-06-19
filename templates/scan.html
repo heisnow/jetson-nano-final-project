@@ -44,7 +44,7 @@
 
   <article class="panel">
     <h2>標籤文字分析</h2>
-    <p>目前先以文字與規則資料庫分析；之後可以串接 OCR 或影像模型，自動畫出物品類型。</p>
+    <p>可以先拍照，讓 OCR 嘗試讀取包裝文字；若本地規則不夠明確，可再用網路搜尋摘要補強判斷。</p>
     <div class="quick-buttons" aria-label="常見材質快捷按鈕">
       <button class="quick-button" type="button" data-token="PET 寶特瓶">PET</button>
       <button class="quick-button" type="button" data-token="PP 塑膠杯">PP</button>
@@ -55,14 +55,21 @@
       <button class="quick-button" type="button" data-token="乾電池 電池">電池</button>
     </div>
     <textarea id="scanText" placeholder="例如：PET 寶特瓶、PP 塑膠杯、鋁箔包、紙餐盒油污嚴重"></textarea>
+    <p id="ocrStatus"></p>
     <div class="actions">
+      <button class="button secondary" id="ocrButton" type="button">OCR 讀取照片文字</button>
       <button class="button" id="analyzeButton" type="button">分析分類</button>
+      <button class="button secondary" id="webLookupButton" type="button">上網查詢補強</button>
     </div>
     <div class="panel result-box" id="resultBox" style="display:none; margin-top: 16px;">
       <h2 id="resultTitle">辨識結果</h2>
       <p id="resultMessage"></p>
       <div class="meta" id="resultMeta"></div>
       <p id="resultSteps"></p>
+      <div id="webResults" style="display:none; margin-top: 14px;">
+        <h3>網路查詢摘要</h3>
+        <div class="rule-list" id="webResultsList"></div>
+      </div>
       <div class="feedback-panel" id="feedbackPanel">
         <h3>這次結果正確嗎？</h3>
         <div class="actions">
@@ -103,10 +110,12 @@
   </div>
 </section>
 
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
 <script>
   let stream = null;
   let useBackCamera = true;
   let currentRecordId = null;
+  let hasSnapshot = false;
   const video = document.getElementById("camera");
   const placeholder = document.getElementById("cameraPlaceholder");
   const snapshotCanvas = document.getElementById("snapshotCanvas");
@@ -132,6 +141,21 @@
     }
   }
 
+  function captureSnapshot() {
+    if (!stream || !video.videoWidth) {
+      placeholder.style.display = "grid";
+      placeholder.innerHTML = "<p>請先開啟鏡頭，再拍照截圖。</p>";
+      return false;
+    }
+    snapshotCanvas.width = video.videoWidth;
+    snapshotCanvas.height = video.videoHeight;
+    const context = snapshotCanvas.getContext("2d");
+    context.drawImage(video, 0, 0, snapshotCanvas.width, snapshotCanvas.height);
+    snapshotPreview.style.display = "block";
+    hasSnapshot = true;
+    return true;
+  }
+
   function stopCamera() {
     if (stream) {
       stream.getTracks().forEach(track => track.stop());
@@ -147,18 +171,7 @@
     await startCamera();
   });
   document.getElementById("stopCamera").addEventListener("click", stopCamera);
-  document.getElementById("captureButton").addEventListener("click", () => {
-    if (!stream || !video.videoWidth) {
-      placeholder.style.display = "grid";
-      placeholder.innerHTML = "<p>請先開啟鏡頭，再拍照截圖。</p>";
-      return;
-    }
-    snapshotCanvas.width = video.videoWidth;
-    snapshotCanvas.height = video.videoHeight;
-    const context = snapshotCanvas.getContext("2d");
-    context.drawImage(video, 0, 0, snapshotCanvas.width, snapshotCanvas.height);
-    snapshotPreview.style.display = "block";
-  });
+  document.getElementById("captureButton").addEventListener("click", captureSnapshot);
 
   document.querySelectorAll(".quick-button").forEach(button => {
     button.addEventListener("click", () => {
@@ -169,9 +182,40 @@
     });
   });
 
-  document.getElementById("analyzeButton").addEventListener("click", async () => {
+  document.getElementById("ocrButton").addEventListener("click", async () => {
+    const status = document.getElementById("ocrStatus");
+    if (!hasSnapshot && !captureSnapshot()) {
+      return;
+    }
+    if (!window.Tesseract) {
+      status.textContent = "OCR 套件尚未載入，請確認網路連線後重試。";
+      return;
+    }
+    status.textContent = "OCR 辨識中，請稍等...";
+    try {
+      const result = await Tesseract.recognize(snapshotCanvas, "eng+chi_tra", {
+        logger: message => {
+          if (message.status === "recognizing text") {
+            status.textContent = `OCR 辨識中 ${Math.round(message.progress * 100)}%`;
+          }
+        }
+      });
+      const recognizedText = result.data.text.trim();
+      if (recognizedText) {
+        const textArea = document.getElementById("scanText");
+        textArea.value = textArea.value ? `${textArea.value}\n${recognizedText}` : recognizedText;
+        status.textContent = "OCR 已讀取文字，可再按分析或上網查詢補強。";
+      } else {
+        status.textContent = "OCR 沒讀到明確文字，建議手動補上材質或物品名稱。";
+      }
+    } catch (error) {
+      status.textContent = "OCR 辨識失敗，請改用快捷按鈕或手動輸入。";
+    }
+  });
+
+  async function runAnalysis(endpoint) {
     const text = document.getElementById("scanText").value;
-    const response = await fetch("{{ url_for('analyze_api') }}", {
+    const response = await fetch(endpoint, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -180,6 +224,15 @@
       })
     });
     const result = await response.json();
+    if (!response.ok) {
+      document.getElementById("ocrStatus").textContent = result.message || "分析失敗，請補充物品線索。";
+      return false;
+    }
+    renderResult(result);
+    return true;
+  }
+
+  function renderResult(result) {
     currentRecordId = result.record_id;
     const resultBox = document.getElementById("resultBox");
     resultBox.style.display = "block";
@@ -198,6 +251,42 @@
     document.getElementById("correctedItem").value = result.item_name === "未知物品" ? "" : result.item_name;
     document.getElementById("correctedCategory").value = "";
     document.getElementById("feedbackNote").value = "";
+    renderWebResults(result.web_results || []);
+  }
+
+  function renderWebResults(results) {
+    const container = document.getElementById("webResults");
+    const list = document.getElementById("webResultsList");
+    list.innerHTML = "";
+    if (!results.length) {
+      container.style.display = "none";
+      return;
+    }
+    container.style.display = "block";
+    results.forEach(item => {
+      const block = document.createElement("div");
+      block.className = "rule";
+      const title = document.createElement("h3");
+      title.textContent = item.title;
+      const snippet = document.createElement("p");
+      snippet.textContent = item.snippet || item.domain || "";
+      block.appendChild(title);
+      block.appendChild(snippet);
+      list.appendChild(block);
+    });
+  }
+
+  document.getElementById("analyzeButton").addEventListener("click", () => {
+    runAnalysis("{{ url_for('analyze_api') }}");
+  });
+
+  document.getElementById("webLookupButton").addEventListener("click", async () => {
+    const status = document.getElementById("ocrStatus");
+    status.textContent = "正在查詢公開資料與網路回收分類摘要...";
+    const ok = await runAnalysis("{{ url_for('web_lookup_api') }}");
+    if (ok) {
+      status.textContent = "查詢完成，請依結果與地方規定再確認。";
+    }
   });
 
   async function sendFeedback(isCorrect) {
