@@ -34,7 +34,7 @@ PROJECT = {
     "summary": (
         "EcoLens 是一個貼近日常生活的 Flask 專題。使用者打開網頁即可啟用裝置鏡頭，"
         "手機可使用前後鏡頭，電腦可使用前鏡頭，將包裝、瓶罐、紙盒或標籤對準鏡頭。"
-        "目前版本結合 OCR、使用者輸入線索、回收規則資料庫與網路搜尋摘要，"
+        "目前版本結合影像特徵分析、OCR、使用者輸入線索、回收規則資料庫與網路搜尋摘要，"
         "先大致判斷垃圾分類；未來可串接圖像模型提高自動辨識能力。"
     ),
     "motivation": (
@@ -117,6 +117,27 @@ def create_app() -> Flask:
             confidence=result["confidence"],
             notes=result["disposal_steps"],
             device_type=device_type,
+        )
+        result["record_id"] = record.id
+        return jsonify(result)
+
+    @app.post("/api/visual-lookup")
+    def visual_lookup_api():
+        payload = request.get_json(silent=True) or {}
+        text = str(payload.get("text", "")).strip()
+        device_type = str(payload.get("device_type", "visual feature lookup")).strip()
+        features = payload.get("features") or {}
+        if not isinstance(features, dict):
+            return jsonify({"status": "error", "message": "影像特徵格式錯誤，請重新拍照。"}), 400
+
+        result = analyze_visual_features(features, text)
+        record = save_scan_record(
+            input_text=result["visual_lookup_text"],
+            guessed_item=result["item_name"],
+            suggested_category=result["category"],
+            confidence=result["confidence"],
+            notes=result["disposal_steps"],
+            device_type=device_type or "visual feature lookup",
         )
         result["record_id"] = record.id
         return jsonify(result)
@@ -361,6 +382,133 @@ CATEGORY_HINTS = [
 ]
 
 TAIPEI_RECYCLING_ROWS: list[dict[str, str]] | None = None
+
+
+def analyze_visual_features(features: dict[str, object], user_text: str = "") -> dict[str, object]:
+    visual_profile = build_visual_profile(features)
+    visual_terms = " ".join(visual_profile["terms"])
+    lookup_text = " ".join(part for part in [user_text, visual_terms] if part).strip()
+    if not lookup_text:
+        lookup_text = "無明顯影像特徵"
+
+    result = analyze_with_web_lookup(lookup_text)
+    if visual_profile["confidence_boost"] and result["item_name"] != "未知物品":
+        result["confidence"] = round(min(0.94, result["confidence"] + visual_profile["confidence_boost"]), 2)
+
+    result["message"] = (
+        f"已先解析照片特徵：{visual_profile['summary']}。"
+        "系統再用這些特徵詞查詢公開分類資料與網路摘要，推測最接近的垃圾分類。"
+    )
+    result["visual_features"] = visual_profile["ratios"]
+    result["visual_terms"] = visual_profile["terms"]
+    result["visual_summary"] = visual_profile["summary"]
+    result["visual_lookup_text"] = lookup_text
+    return result
+
+
+def build_visual_profile(features: dict[str, object]) -> dict[str, object]:
+    ratios = {
+        "cardboard_ratio": clamp_ratio(features.get("cardboard_ratio")),
+        "white_ratio": clamp_ratio(features.get("white_ratio")),
+        "gray_ratio": clamp_ratio(features.get("gray_ratio")),
+        "highlight_ratio": clamp_ratio(features.get("highlight_ratio")),
+        "dark_ratio": clamp_ratio(features.get("dark_ratio")),
+        "green_ratio": clamp_ratio(features.get("green_ratio")),
+        "blue_ratio": clamp_ratio(features.get("blue_ratio")),
+        "red_orange_ratio": clamp_ratio(features.get("red_orange_ratio")),
+        "transparent_like_ratio": clamp_ratio(features.get("transparent_like_ratio")),
+        "metal_like_ratio": clamp_ratio(features.get("metal_like_ratio")),
+        "edge_density": clamp_ratio(features.get("edge_density")),
+    }
+
+    candidates: list[tuple[float, str, list[str], str]] = []
+    cardboard_score = ratios["cardboard_ratio"] * 1.8 + ratios["edge_density"] * 0.35
+    if ratios["cardboard_ratio"] >= 0.10 and ratios["dark_ratio"] < 0.58:
+        candidates.append(
+            (
+                cardboard_score,
+                "紙箱 / 瓦楞紙板",
+                ["棕色紙箱", "紙箱", "紙板", "瓦楞紙", "cardboard box"],
+                "棕色紙板比例偏高，且畫面有紙箱邊緣或折線感",
+            )
+        )
+
+    metal_score = ratios["metal_like_ratio"] * 1.5 + ratios["highlight_ratio"] * 0.5
+    if ratios["metal_like_ratio"] >= 0.18 or (ratios["gray_ratio"] >= 0.24 and ratios["highlight_ratio"] >= 0.08):
+        candidates.append(
+            (
+                metal_score,
+                "鐵鋁罐 / 金屬容器",
+                ["鐵鋁罐", "金屬罐", "鋁罐", "鐵罐", "aluminum can"],
+                "灰白低飽和區塊與亮部反光較多，可能是金屬容器",
+            )
+        )
+
+    white_score = ratios["white_ratio"] * 1.15 + ratios["transparent_like_ratio"] * 0.35
+    if ratios["white_ratio"] >= 0.24 and ratios["cardboard_ratio"] < 0.12:
+        candidates.append(
+            (
+                white_score,
+                "白色紙容器 / 保麗龍餐盒",
+                ["白色餐盒", "紙餐盒", "紙容器", "保麗龍餐盒", "styrofoam"],
+                "白色或淺色區塊明顯，可能是紙餐盒、紙容器或保麗龍包材",
+            )
+        )
+
+    plastic_score = ratios["transparent_like_ratio"] * 1.2 + ratios["blue_ratio"] * 0.5
+    if ratios["transparent_like_ratio"] >= 0.28 or ratios["blue_ratio"] >= 0.18:
+        candidates.append(
+            (
+                plastic_score,
+                "塑膠瓶 / 塑膠容器",
+                ["透明塑膠瓶", "寶特瓶", "塑膠容器", "PET", "plastic bottle"],
+                "透明感、淺色反光或藍色包裝比例較高，可能是塑膠瓶罐",
+            )
+        )
+
+    glass_score = ratios["green_ratio"] * 1.2 + ratios["highlight_ratio"] * 0.35
+    if ratios["green_ratio"] >= 0.13 and ratios["highlight_ratio"] >= 0.04:
+        candidates.append(
+            (
+                glass_score,
+                "玻璃瓶 / 玻璃罐",
+                ["玻璃瓶", "玻璃罐", "綠色玻璃瓶", "glass bottle"],
+                "綠色透明感與反光同時出現，可能是玻璃瓶罐",
+            )
+        )
+
+    candidates.sort(key=lambda item: item[0], reverse=True)
+    if not candidates:
+        strongest = max(ratios, key=ratios.get)
+        readable = strongest.replace("_ratio", "").replace("_", " ")
+        return {
+            "terms": [],
+            "summary": f"沒有足夠明顯的材質特徵；最明顯訊號是 {readable} 約 {ratios[strongest]:.0%}",
+            "confidence_boost": 0.0,
+            "ratios": ratios,
+        }
+
+    top_score, label, terms, reason = candidates[0]
+    extra_terms: list[str] = []
+    for _, _, candidate_terms, _ in candidates[1:3]:
+        extra_terms.extend(candidate_terms[:2])
+
+    summary = f"{reason}；初步候選為 {label}"
+    confidence_boost = min(0.12, max(0.03, top_score / 10))
+    return {
+        "terms": [*terms, *extra_terms],
+        "summary": summary,
+        "confidence_boost": round(confidence_boost, 2),
+        "ratios": ratios,
+    }
+
+
+def clamp_ratio(value: object) -> float:
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return 0.0
+    return min(1.0, max(0.0, number))
 
 
 def analyze_with_web_lookup(text: str) -> dict[str, object]:

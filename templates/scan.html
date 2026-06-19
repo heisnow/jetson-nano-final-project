@@ -219,18 +219,24 @@
     if (!hasSnapshot && !captureSnapshot()) {
       return;
     }
-    const guess = guessFromSnapshotPixels();
-    if (!guess) {
-      status.textContent = "影像沒有明顯紙箱特徵。請改用 OCR、快捷按鈕或手動輸入物品線索。";
+    const features = extractVisualFeaturesFromSnapshot();
+    if (!features) {
+      status.textContent = "影像特徵讀取失敗，請重新拍照或改用 OCR。";
       return;
     }
     const textArea = document.getElementById("scanText");
-    textArea.value = textArea.value ? `${textArea.value} ${guess.token}` : guess.token;
-    status.textContent = guess.message;
-    await runAnalysis("{{ url_for('analyze_api') }}");
+    if (features.suggested_tokens.length) {
+      const tokenText = features.suggested_tokens.join(" ");
+      textArea.value = textArea.value ? `${textArea.value} ${tokenText}` : tokenText;
+    }
+    status.textContent = `已解析影像特徵：${features.summary}，正在查詢分類資料...`;
+    const ok = await runAnalysis("{{ url_for('visual_lookup_api') }}", { features });
+    if (ok) {
+      status.textContent = "影像特徵分析完成。若結果仍不準，可用下方修正回饋補強資料。";
+    }
   });
 
-  function guessFromSnapshotPixels() {
+  function extractVisualFeaturesFromSnapshot() {
     const context = snapshotCanvas.getContext("2d");
     const width = snapshotCanvas.width;
     const height = snapshotCanvas.height;
@@ -247,49 +253,134 @@
     sampleContext.drawImage(snapshotCanvas, 0, 0, sampleWidth, sampleHeight);
     const pixels = sampleContext.getImageData(0, 0, sampleWidth, sampleHeight).data;
 
+    const startX = Math.floor(sampleWidth * 0.14);
+    const endX = Math.floor(sampleWidth * 0.86);
+    const startY = Math.floor(sampleHeight * 0.14);
+    const endY = Math.floor(sampleHeight * 0.86);
+    const step = 2;
     let total = 0;
     let cardboardPixels = 0;
+    let whitePixels = 0;
+    let grayPixels = 0;
+    let highlightPixels = 0;
     let darkPixels = 0;
-    for (let i = 0; i < pixels.length; i += 16) {
-      const r = pixels[i];
-      const g = pixels[i + 1];
-      const b = pixels[i + 2];
-      const a = pixels[i + 3];
-      if (a < 180) {
-        continue;
-      }
-      total += 1;
-      const hsl = rgbToHsl(r, g, b);
-      const brightness = (r + g + b) / 3;
-      const isCardboardBrown =
-        hsl.h >= 18 &&
-        hsl.h <= 52 &&
-        hsl.s >= 0.16 &&
-        hsl.s <= 0.72 &&
-        hsl.l >= 0.22 &&
-        hsl.l <= 0.78 &&
-        r >= b + 18 &&
-        g >= b + 8;
-      if (isCardboardBrown) {
-        cardboardPixels += 1;
-      }
-      if (brightness < 45) {
-        darkPixels += 1;
+    let greenPixels = 0;
+    let bluePixels = 0;
+    let redOrangePixels = 0;
+    let transparentLikePixels = 0;
+    let metalLikePixels = 0;
+    let edgePixels = 0;
+    let edgeSamples = 0;
+
+    for (let y = startY; y < endY; y += step) {
+      for (let x = startX; x < endX; x += step) {
+        const i = (y * sampleWidth + x) * 4;
+        const r = pixels[i];
+        const g = pixels[i + 1];
+        const b = pixels[i + 2];
+        const a = pixels[i + 3];
+        if (a < 180) {
+          continue;
+        }
+        total += 1;
+        const hsl = rgbToHsl(r, g, b);
+        const brightness = (r + g + b) / 3;
+        const colorSpread = Math.max(r, g, b) - Math.min(r, g, b);
+        const isCardboardBrown =
+          hsl.h >= 18 &&
+          hsl.h <= 52 &&
+          hsl.s >= 0.14 &&
+          hsl.s <= 0.75 &&
+          hsl.l >= 0.20 &&
+          hsl.l <= 0.82 &&
+          r >= b + 16 &&
+          g >= b + 6;
+        const isWhite = r > 188 && g > 188 && b > 188 && colorSpread < 48;
+        const isGray = hsl.s < 0.16 && brightness >= 58 && brightness <= 215;
+        const isHighlight = r > 220 && g > 220 && b > 220;
+        const isGreen = hsl.h >= 75 && hsl.h <= 165 && hsl.s > 0.18 && hsl.l > 0.16;
+        const isBlue = hsl.h >= 175 && hsl.h <= 255 && hsl.s > 0.16 && hsl.l > 0.16;
+        const isRedOrange = (hsl.h <= 28 || hsl.h >= 345) && hsl.s > 0.18 && hsl.l > 0.18;
+        const isTransparentLike = hsl.s < 0.12 && brightness > 160 && brightness < 245;
+        const isMetalLike = hsl.s < 0.14 && brightness >= 80 && brightness <= 230 && colorSpread < 38;
+
+        if (isCardboardBrown) cardboardPixels += 1;
+        if (isWhite) whitePixels += 1;
+        if (isGray) grayPixels += 1;
+        if (isHighlight) highlightPixels += 1;
+        if (brightness < 45) darkPixels += 1;
+        if (isGreen) greenPixels += 1;
+        if (isBlue) bluePixels += 1;
+        if (isRedOrange) redOrangePixels += 1;
+        if (isTransparentLike) transparentLikePixels += 1;
+        if (isMetalLike) metalLikePixels += 1;
+
+        if (x + step < endX) {
+          const ni = (y * sampleWidth + x + step) * 4;
+          const neighborBrightness = (pixels[ni] + pixels[ni + 1] + pixels[ni + 2]) / 3;
+          if (Math.abs(brightness - neighborBrightness) > 38) {
+            edgePixels += 1;
+          }
+          edgeSamples += 1;
+        }
       }
     }
 
     if (!total) {
       return null;
     }
-    const cardboardRatio = cardboardPixels / total;
-    const darkRatio = darkPixels / total;
-    if (cardboardRatio >= 0.18 && darkRatio < 0.55) {
-      return {
-        token: "棕色紙箱 紙板 瓦楞紙 cardboard box",
-        message: `影像初步判斷像棕色紙箱，棕色紙板比例約 ${Math.round(cardboardRatio * 100)}%。`
-      };
+
+    const features = {
+      cardboard_ratio: cardboardPixels / total,
+      white_ratio: whitePixels / total,
+      gray_ratio: grayPixels / total,
+      highlight_ratio: highlightPixels / total,
+      dark_ratio: darkPixels / total,
+      green_ratio: greenPixels / total,
+      blue_ratio: bluePixels / total,
+      red_orange_ratio: redOrangePixels / total,
+      transparent_like_ratio: transparentLikePixels / total,
+      metal_like_ratio: metalLikePixels / total,
+      edge_density: edgeSamples ? edgePixels / edgeSamples : 0,
+      suggested_tokens: [],
+      summary: ""
+    };
+
+    const clues = [];
+    if (features.cardboard_ratio >= 0.10 && features.dark_ratio < 0.58) {
+      features.suggested_tokens.push("棕色紙箱", "紙板", "瓦楞紙", "cardboard box");
+      clues.push(`棕色紙板 ${Math.round(features.cardboard_ratio * 100)}%`);
     }
-    return null;
+    if (features.metal_like_ratio >= 0.18 || (features.gray_ratio >= 0.24 && features.highlight_ratio >= 0.08)) {
+      features.suggested_tokens.push("鐵鋁罐", "金屬罐", "鋁罐");
+      clues.push(`金屬灰階 ${Math.round(features.metal_like_ratio * 100)}%`);
+    }
+    if (features.white_ratio >= 0.24 && features.cardboard_ratio < 0.12) {
+      features.suggested_tokens.push("白色餐盒", "紙餐盒", "保麗龍餐盒");
+      clues.push(`白色淺色 ${Math.round(features.white_ratio * 100)}%`);
+    }
+    if (features.transparent_like_ratio >= 0.28 || features.blue_ratio >= 0.18) {
+      features.suggested_tokens.push("透明塑膠瓶", "寶特瓶", "PET", "塑膠容器");
+      clues.push(`透明/塑膠感 ${Math.round(features.transparent_like_ratio * 100)}%`);
+    }
+    if (features.green_ratio >= 0.13 && features.highlight_ratio >= 0.04) {
+      features.suggested_tokens.push("玻璃瓶", "玻璃罐", "綠色玻璃瓶");
+      clues.push(`綠色反光 ${Math.round(features.green_ratio * 100)}%`);
+    }
+
+    if (!clues.length) {
+      const ranked = [
+        ["棕色紙板", features.cardboard_ratio],
+        ["白色淺色", features.white_ratio],
+        ["金屬灰階", features.metal_like_ratio],
+        ["透明/塑膠感", features.transparent_like_ratio],
+        ["綠色", features.green_ratio]
+      ].sort((a, b) => b[1] - a[1]);
+      clues.push(`${ranked[0][0]} ${Math.round(ranked[0][1] * 100)}%`);
+    }
+
+    features.summary = `${clues.join("、")}，邊緣密度 ${Math.round(features.edge_density * 100)}%`;
+    return features;
   }
 
   function rgbToHsl(r, g, b) {
@@ -319,14 +410,15 @@
     return { h, s, l };
   }
 
-  async function runAnalysis(endpoint) {
+  async function runAnalysis(endpoint, extraPayload = {}) {
     const text = document.getElementById("scanText").value;
     const response = await fetch(endpoint, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         text,
-        device_type: useBackCamera ? "mobile/back-or-browser-camera" : "front-camera"
+        device_type: useBackCamera ? "mobile/back-or-browser-camera" : "front-camera",
+        ...extraPayload
       })
     });
     const result = await response.json();
