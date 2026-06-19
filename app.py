@@ -7,8 +7,15 @@ import click
 from flask import Flask, jsonify, render_template, request
 from sqlalchemy import desc, func, or_, select
 
-from database import SessionLocal, get_database_url, init_db, save_scan_record, seed_demo_data
-from models import RecyclingRule, ScanRecord
+from database import (
+    SessionLocal,
+    get_database_url,
+    init_db,
+    save_scan_feedback,
+    save_scan_record,
+    seed_demo_data,
+)
+from models import RecyclingRule, ScanFeedback, ScanRecord
 
 
 PROJECT = {
@@ -64,7 +71,10 @@ def create_app() -> Flask:
     def scan():
         with SessionLocal() as session:
             rules = session.scalars(select(RecyclingRule).order_by(RecyclingRule.item_name)).all()
-        return render_template("scan.html", project=PROJECT, rules=rules)
+            categories = session.scalars(
+                select(RecyclingRule.category).distinct().order_by(RecyclingRule.category)
+            ).all()
+        return render_template("scan.html", project=PROJECT, rules=rules, categories=categories)
 
     @app.post("/api/analyze")
     def analyze_api():
@@ -82,6 +92,34 @@ def create_app() -> Flask:
         )
         result["record_id"] = record.id
         return jsonify(result)
+
+    @app.post("/api/feedback")
+    def feedback_api():
+        payload = request.get_json(silent=True) or {}
+        scan_id = int(payload.get("record_id") or 0)
+        is_correct = bool(payload.get("is_correct"))
+        corrected_item = str(payload.get("corrected_item", "")).strip()
+        corrected_category = str(payload.get("corrected_category", "")).strip()
+        user_note = str(payload.get("user_note", "")).strip()
+
+        try:
+            feedback = save_scan_feedback(
+                scan_id=scan_id,
+                is_correct=is_correct,
+                corrected_item=corrected_item,
+                corrected_category=corrected_category,
+                user_note=user_note,
+            )
+        except ValueError:
+            return jsonify({"status": "error", "message": "找不到這筆掃描紀錄。"}), 404
+
+        return jsonify(
+            {
+                "status": "ok",
+                "feedback_id": feedback.id,
+                "message": "已收到回饋，這些資料會用來改善分類規則與後續模型。",
+            }
+        )
 
     @app.route("/rules")
     def rules():
@@ -125,13 +163,20 @@ def create_app() -> Flask:
         with SessionLocal() as session:
             rules_data = session.scalars(select(RecyclingRule)).all()
             scans = session.scalars(select(ScanRecord).order_by(desc(ScanRecord.created_at))).all()
+            feedback_rows = session.scalars(select(ScanFeedback)).all()
 
         category_counts = Counter(rule.category for rule in rules_data)
         material_counts = Counter(rule.material or "未標示" for rule in rules_data)
         scanned_items = Counter(scan.guessed_item for scan in scans)
+        corrected_categories = Counter(
+            feedback.corrected_category for feedback in feedback_rows if feedback.corrected_category
+        )
         low_confidence_count = sum(1 for scan in scans if scan.confidence < 0.5)
+        incorrect_count = sum(1 for feedback in feedback_rows if not feedback.is_correct)
+        feedback_count = len(feedback_rows)
         max_category = max(category_counts.values(), default=1)
         max_scanned = max(scanned_items.values(), default=1)
+        max_corrected = max(corrected_categories.values(), default=1)
 
         return render_template(
             "analysis.html",
@@ -139,10 +184,14 @@ def create_app() -> Flask:
             category_counts=category_counts.most_common(),
             material_counts=material_counts.most_common(6),
             scanned_items=scanned_items.most_common(8),
+            corrected_categories=corrected_categories.most_common(8),
             low_confidence_count=low_confidence_count,
+            feedback_count=feedback_count,
+            incorrect_count=incorrect_count,
             scan_count=len(scans),
             max_category=max_category,
             max_scanned=max_scanned,
+            max_corrected=max_corrected,
         )
 
     @app.route("/plan")

@@ -6,7 +6,7 @@ from dotenv import load_dotenv
 from sqlalchemy import create_engine, func, select
 from sqlalchemy.orm import Session, sessionmaker
 
-from models import Base, RecyclingRule, ScanRecord
+from models import Base, RecyclingRule, ScanFeedback, ScanRecord
 
 
 load_dotenv()
@@ -149,3 +149,28 @@ def save_scan_record(
         session.commit()
         session.refresh(record)
         return record
+
+
+def save_scan_feedback(
+    scan_id: int,
+    is_correct: bool,
+    corrected_item: str = "",
+    corrected_category: str = "",
+    user_note: str = "",
+) -> ScanFeedback:
+    with SessionLocal() as session:
+        record = session.get(ScanRecord, scan_id)
+        if record is None:
+            raise ValueError("Scan record not found.")
+
+        feedback = ScanFeedback(
+            scan_id=scan_id,
+            is_correct=is_correct,
+            corrected_item=corrected_item,
+            corrected_category=corrected_category,
+            user_note=user_note,
+        )
+        session.add(feedback)
+        session.commit()
+        session.refresh(feedback)
+        return feedback

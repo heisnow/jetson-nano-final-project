@@ -53,7 +53,28 @@
       <strong>{{ low_confidence_count }}</strong>
       <span>低可信度紀錄</span>
     </div>
-    <p style="margin-top: 14px;">低可信度代表規則資料不足或使用者輸入太模糊，後續可用來補充爬蟲資料與訓練模型。</p>
+    <div class="stat" style="margin-top: 18px;">
+      <strong>{{ feedback_count }}</strong>
+      <span>使用者回饋</span>
+    </div>
+    <div class="stat" style="margin-top: 18px;">
+      <strong>{{ incorrect_count }}</strong>
+      <span>需要修正的結果</span>
+    </div>
+    <p style="margin-top: 14px;">低可信度與使用者修正代表規則資料不足或輸入太模糊，後續可用來補充爬蟲資料、調整規則與訓練模型。</p>
+  </article>
+
+  <article class="panel">
+    <h2>使用者修正分類</h2>
+    {% for label, count in corrected_categories %}
+    <div class="bar-row">
+      <span>{{ label }}</span>
+      <div class="bar-track"><div class="bar-fill" style="width: {{ (count / max_corrected * 100)|round }}%; background: var(--amber);"></div></div>
+      <strong>{{ count }}</strong>
+    </div>
+    {% else %}
+    <p>目前還沒有錯誤修正紀錄。使用者在掃描頁送出「不正確」後，這裡會累積改善資料。</p>
+    {% endfor %}
   </article>
 </section>
 {% endblock %}

@@ -11,6 +11,7 @@
     <div class="actions">
       <button class="button" id="startCamera" type="button">開啟鏡頭</button>
       <button class="button secondary" id="switchCamera" type="button">切換鏡頭</button>
+      <button class="button secondary" id="captureButton" type="button">拍照截圖</button>
       <button class="button warning" id="stopCamera" type="button">停止鏡頭</button>
     </div>
   </div>
@@ -34,11 +35,25 @@
         <p>按下「開啟鏡頭」後，瀏覽器會詢問相機權限。</p>
       </div>
     </div>
+    <div class="snapshot-preview" id="snapshotPreview" style="display:none;">
+      <h3>剛剛拍下的畫面</h3>
+      <canvas id="snapshotCanvas"></canvas>
+      <p>這張截圖只顯示在你的瀏覽器畫面中，目前不會上傳到伺服器。</p>
+    </div>
   </article>
 
   <article class="panel">
     <h2>標籤文字分析</h2>
     <p>目前先以文字與規則資料庫分析；之後可以串接 OCR 或影像模型，自動畫出物品類型。</p>
+    <div class="quick-buttons" aria-label="常見材質快捷按鈕">
+      <button class="quick-button" type="button" data-token="PET 寶特瓶">PET</button>
+      <button class="quick-button" type="button" data-token="PP 塑膠杯">PP</button>
+      <button class="quick-button" type="button" data-token="PVC 塑膠">PVC</button>
+      <button class="quick-button" type="button" data-token="紙容器 紙餐盒">紙容器</button>
+      <button class="quick-button" type="button" data-token="鋁箔包">鋁箔包</button>
+      <button class="quick-button" type="button" data-token="鐵鋁罐 金屬">鐵鋁罐</button>
+      <button class="quick-button" type="button" data-token="乾電池 電池">電池</button>
+    </div>
     <textarea id="scanText" placeholder="例如：PET 寶特瓶、PP 塑膠杯、鋁箔包、紙餐盒油污嚴重"></textarea>
     <div class="actions">
       <button class="button" id="analyzeButton" type="button">分析分類</button>
@@ -48,6 +63,33 @@
       <p id="resultMessage"></p>
       <div class="meta" id="resultMeta"></div>
       <p id="resultSteps"></p>
+      <div class="feedback-panel" id="feedbackPanel">
+        <h3>這次結果正確嗎？</h3>
+        <div class="actions">
+          <button class="button" id="correctButton" type="button">正確</button>
+          <button class="button secondary" id="wrongButton" type="button">不正確，我要修正</button>
+        </div>
+        <div id="correctionFields" style="display:none; margin-top: 12px;">
+          <label for="correctedItem">正確物品名稱</label>
+          <input id="correctedItem" type="text" placeholder="例如：紙餐盒、玻璃瓶、一般垃圾">
+          <label for="correctedCategory" style="display:block; margin-top: 10px;">正確分類</label>
+          <select id="correctedCategory">
+            <option value="">請選擇分類</option>
+            {% for category in categories %}
+            <option value="{{ category }}">{{ category }}</option>
+            {% endfor %}
+            <option value="一般垃圾">一般垃圾</option>
+            <option value="廚餘">廚餘</option>
+            <option value="需要人工確認">需要人工確認</option>
+          </select>
+          <label for="feedbackNote" style="display:block; margin-top: 10px;">補充說明</label>
+          <textarea id="feedbackNote" placeholder="例如：餐盒油污太重，所以不適合回收。"></textarea>
+          <div class="actions">
+            <button class="button" id="submitCorrection" type="button">送出修正</button>
+          </div>
+        </div>
+        <p id="feedbackMessage" style="margin-top: 10px;"></p>
+      </div>
     </div>
   </article>
 </section>
@@ -64,8 +106,11 @@
 <script>
   let stream = null;
   let useBackCamera = true;
+  let currentRecordId = null;
   const video = document.getElementById("camera");
   const placeholder = document.getElementById("cameraPlaceholder");
+  const snapshotCanvas = document.getElementById("snapshotCanvas");
+  const snapshotPreview = document.getElementById("snapshotPreview");
 
   async function startCamera() {
     if (stream) {
@@ -102,6 +147,27 @@
     await startCamera();
   });
   document.getElementById("stopCamera").addEventListener("click", stopCamera);
+  document.getElementById("captureButton").addEventListener("click", () => {
+    if (!stream || !video.videoWidth) {
+      placeholder.style.display = "grid";
+      placeholder.innerHTML = "<p>請先開啟鏡頭，再拍照截圖。</p>";
+      return;
+    }
+    snapshotCanvas.width = video.videoWidth;
+    snapshotCanvas.height = video.videoHeight;
+    const context = snapshotCanvas.getContext("2d");
+    context.drawImage(video, 0, 0, snapshotCanvas.width, snapshotCanvas.height);
+    snapshotPreview.style.display = "block";
+  });
+
+  document.querySelectorAll(".quick-button").forEach(button => {
+    button.addEventListener("click", () => {
+      const textArea = document.getElementById("scanText");
+      const token = button.dataset.token;
+      textArea.value = textArea.value ? `${textArea.value} ${token}` : token;
+      textArea.focus();
+    });
+  });
 
   document.getElementById("analyzeButton").addEventListener("click", async () => {
     const text = document.getElementById("scanText").value;
@@ -114,6 +180,7 @@
       })
     });
     const result = await response.json();
+    currentRecordId = result.record_id;
     const resultBox = document.getElementById("resultBox");
     resultBox.style.display = "block";
     resultBox.classList.toggle("low", result.confidence < 0.5);
@@ -125,6 +192,46 @@
       <span>可信度 ${Math.round(result.confidence * 100)}%</span>
     `;
     document.getElementById("resultSteps").textContent = result.disposal_steps;
+    document.getElementById("feedbackPanel").style.display = "block";
+    document.getElementById("correctionFields").style.display = "none";
+    document.getElementById("feedbackMessage").textContent = "";
+    document.getElementById("correctedItem").value = result.item_name === "未知物品" ? "" : result.item_name;
+    document.getElementById("correctedCategory").value = "";
+    document.getElementById("feedbackNote").value = "";
+  });
+
+  async function sendFeedback(isCorrect) {
+    if (!currentRecordId) {
+      document.getElementById("feedbackMessage").textContent = "請先完成一次分析。";
+      return;
+    }
+    const payload = {
+      record_id: currentRecordId,
+      is_correct: isCorrect,
+      corrected_item: isCorrect ? "" : document.getElementById("correctedItem").value,
+      corrected_category: isCorrect ? "" : document.getElementById("correctedCategory").value,
+      user_note: isCorrect ? "使用者確認結果正確" : document.getElementById("feedbackNote").value
+    };
+    const response = await fetch("{{ url_for('feedback_api') }}", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    });
+    const result = await response.json();
+    document.getElementById("feedbackMessage").textContent = result.message || "回饋已送出。";
+  }
+
+  document.getElementById("correctButton").addEventListener("click", () => {
+    document.getElementById("correctionFields").style.display = "none";
+    sendFeedback(true);
+  });
+
+  document.getElementById("wrongButton").addEventListener("click", () => {
+    document.getElementById("correctionFields").style.display = "block";
+  });
+
+  document.getElementById("submitCorrection").addEventListener("click", () => {
+    sendFeedback(false);
   });
 </script>
 {% endblock %}
