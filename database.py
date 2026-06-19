@@ -143,11 +143,11 @@ DEMO_RULES = [
         "item_name": "衛生紙",
         "category": "一般垃圾",
         "material": "污染紙類",
-        "disposal_steps": "使用過的衛生紙、紙巾多屬一般垃圾，不建議投入紙類回收。",
+        "disposal_steps": "使用過的衛生紙、紙巾、面紙、擦手紙或濕紙巾多屬一般垃圾，不建議投入紙類回收。外包裝若標示可丟馬桶的衛生紙，才可少量投入馬桶。",
         "city": "通用",
         "source_name": "示範資料：生活回收規則",
         "source_url": "demo://tissue",
-        "keywords": "衛生紙,紙巾,污染紙類,一般垃圾",
+        "keywords": "衛生紙,紙巾,面紙,餐巾紙,擦手紙,廚房紙巾,濕紙巾,紙尿布,污染紙類,一般垃圾,tissue,toilet paper",
     },
 ]
 

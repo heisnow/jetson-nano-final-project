@@ -374,9 +374,16 @@ CATEGORY_HINTS = [
     },
     {
         "category": "一般垃圾",
+        "item": "衛生紙 / 紙巾",
+        "material": "短纖維或受污染紙類",
+        "terms": ["衛生紙", "紙巾", "面紙", "餐巾紙", "擦手紙", "廚房紙巾", "濕紙巾", "紙尿布", "toilet paper", "tissue"],
+        "steps": "衛生紙、面紙、紙巾、擦手紙與濕紙巾通常不屬於廢紙回收；使用過或受污染時請作一般垃圾。若外包裝標示可丟馬桶的衛生紙，才可少量投入馬桶。",
+    },
+    {
+        "category": "一般垃圾",
         "item": "一般垃圾",
         "material": "不可回收或污染物",
-        "terms": ["衛生紙", "紙巾", "口罩", "油污嚴重", "髒污", "污染紙", "不可回收"],
+        "terms": ["口罩", "油污嚴重", "髒污", "污染紙", "不可回收", "吸油面紙", "複寫紙", "感熱紙"],
         "steps": "若物品沾滿油污、食物殘渣或屬衛生用品，通常不適合回收，請作一般垃圾處理。",
     },
 ]
@@ -418,6 +425,7 @@ def build_visual_profile(features: dict[str, object]) -> dict[str, object]:
         "red_orange_ratio": clamp_ratio(features.get("red_orange_ratio")),
         "transparent_like_ratio": clamp_ratio(features.get("transparent_like_ratio")),
         "metal_like_ratio": clamp_ratio(features.get("metal_like_ratio")),
+        "wrinkle_ratio": clamp_ratio(features.get("wrinkle_ratio")),
         "edge_density": clamp_ratio(features.get("edge_density")),
     }
 
@@ -444,8 +452,26 @@ def build_visual_profile(features: dict[str, object]) -> dict[str, object]:
             )
         )
 
+    tissue_score = ratios["wrinkle_ratio"] * 2.1 + ratios["white_ratio"] * 0.9 + ratios["edge_density"] * 0.45
+    looks_like_soft_paper = (
+        ratios["white_ratio"] >= 0.18
+        and ratios["wrinkle_ratio"] >= 0.055
+        and ratios["cardboard_ratio"] < 0.13
+        and ratios["metal_like_ratio"] < 0.38
+        and ratios["transparent_like_ratio"] < 0.45
+    )
+    if looks_like_soft_paper:
+        candidates.append(
+            (
+                tissue_score,
+                "衛生紙 / 紙巾",
+                ["衛生紙", "紙巾", "面紙", "餐巾紙", "擦手紙", "一般垃圾"],
+                "白色柔軟紙面與皺褶陰影明顯，可能是衛生紙、面紙或紙巾",
+            )
+        )
+
     white_score = ratios["white_ratio"] * 1.15 + ratios["transparent_like_ratio"] * 0.35
-    if ratios["white_ratio"] >= 0.24 and ratios["cardboard_ratio"] < 0.12:
+    if ratios["white_ratio"] >= 0.24 and ratios["cardboard_ratio"] < 0.12 and ratios["wrinkle_ratio"] < 0.11:
         candidates.append(
             (
                 white_score,

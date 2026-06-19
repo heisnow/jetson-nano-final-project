@@ -53,6 +53,7 @@
       <button class="quick-button" type="button" data-token="鋁箔包">鋁箔包</button>
       <button class="quick-button" type="button" data-token="鐵鋁罐 金屬">鐵鋁罐</button>
       <button class="quick-button" type="button" data-token="乾電池 電池">電池</button>
+      <button class="quick-button" type="button" data-token="衛生紙 紙巾 面紙 一般垃圾">衛生紙</button>
     </div>
     <textarea id="scanText" placeholder="例如：PET 寶特瓶、PP 塑膠杯、鋁箔包、紙餐盒油污嚴重"></textarea>
     <p id="ocrStatus"></p>
@@ -269,6 +270,7 @@
     let redOrangePixels = 0;
     let transparentLikePixels = 0;
     let metalLikePixels = 0;
+    let wrinklePixels = 0;
     let edgePixels = 0;
     let edgeSamples = 0;
 
@@ -303,6 +305,7 @@
         const isRedOrange = (hsl.h <= 28 || hsl.h >= 345) && hsl.s > 0.18 && hsl.l > 0.18;
         const isTransparentLike = hsl.s < 0.12 && brightness > 160 && brightness < 245;
         const isMetalLike = hsl.s < 0.14 && brightness >= 80 && brightness <= 230 && colorSpread < 38;
+        const isSoftWhitePaper = (isWhite || (isGray && brightness > 135)) && !isHighlight && colorSpread < 58;
 
         if (isCardboardBrown) cardboardPixels += 1;
         if (isWhite) whitePixels += 1;
@@ -318,8 +321,12 @@
         if (x + step < endX) {
           const ni = (y * sampleWidth + x + step) * 4;
           const neighborBrightness = (pixels[ni] + pixels[ni + 1] + pixels[ni + 2]) / 3;
-          if (Math.abs(brightness - neighborBrightness) > 38) {
+          const brightnessDiff = Math.abs(brightness - neighborBrightness);
+          if (brightnessDiff > 38) {
             edgePixels += 1;
+          }
+          if (isSoftWhitePaper && brightnessDiff > 20 && brightnessDiff < 95) {
+            wrinklePixels += 1;
           }
           edgeSamples += 1;
         }
@@ -341,6 +348,7 @@
       red_orange_ratio: redOrangePixels / total,
       transparent_like_ratio: transparentLikePixels / total,
       metal_like_ratio: metalLikePixels / total,
+      wrinkle_ratio: edgeSamples ? wrinklePixels / edgeSamples : 0,
       edge_density: edgeSamples ? edgePixels / edgeSamples : 0,
       suggested_tokens: [],
       summary: ""
@@ -355,7 +363,17 @@
       features.suggested_tokens.push("鐵鋁罐", "金屬罐", "鋁罐");
       clues.push(`金屬灰階 ${Math.round(features.metal_like_ratio * 100)}%`);
     }
-    if (features.white_ratio >= 0.24 && features.cardboard_ratio < 0.12) {
+    if (
+      features.white_ratio >= 0.18 &&
+      features.wrinkle_ratio >= 0.055 &&
+      features.cardboard_ratio < 0.13 &&
+      features.metal_like_ratio < 0.38 &&
+      features.transparent_like_ratio < 0.45
+    ) {
+      features.suggested_tokens.push("衛生紙", "紙巾", "面紙", "一般垃圾");
+      clues.push(`白色皺褶紙 ${Math.round(features.wrinkle_ratio * 100)}%`);
+    }
+    if (features.white_ratio >= 0.24 && features.cardboard_ratio < 0.12 && features.wrinkle_ratio < 0.11) {
       features.suggested_tokens.push("白色餐盒", "紙餐盒", "保麗龍餐盒");
       clues.push(`白色淺色 ${Math.round(features.white_ratio * 100)}%`);
     }
@@ -372,6 +390,7 @@
       const ranked = [
         ["棕色紙板", features.cardboard_ratio],
         ["白色淺色", features.white_ratio],
+        ["白色皺褶紙", features.wrinkle_ratio],
         ["金屬灰階", features.metal_like_ratio],
         ["透明/塑膠感", features.transparent_like_ratio],
         ["綠色", features.green_ratio]
