@@ -7,7 +7,7 @@
   <div class="panel">
     <div class="tag">Browser Camera</div>
     <h1>用你現在的裝置鏡頭掃描</h1>
-    <p>電腦會使用前鏡頭；手機可切換前後鏡頭。請把包裝、瓶罐或標籤對準鏡頭，再把畫面中看到的材質標示輸入下方欄位進行分析。</p>
+    <p>電腦會使用前鏡頭；手機可切換前後鏡頭。請把垃圾或包裝放在畫面中央，拍照後可直接用圖片自動推測一般垃圾、資源回收或其他分類。</p>
     <div class="actions">
       <button class="button" id="startCamera" type="button">開啟鏡頭</button>
       <button class="button secondary" id="switchCamera" type="button">切換鏡頭</button>
@@ -17,11 +17,11 @@
   </div>
 
   <aside class="panel">
-    <h2>建議輸入方式</h2>
+    <h2>拍照辨識建議</h2>
     <ul>
-      <li>看到瓶身標示：輸入 PET、PP、PVC 或寶特瓶。</li>
-      <li>看到包裝文字：輸入鋁箔包、紙容器、手搖飲杯。</li>
-      <li>看不清楚時：先拍照觀察，再人工補上看到的文字。</li>
+      <li>讓物品盡量填滿畫面中央，背景越單純越好。</li>
+      <li>透明瓶、紙箱、杯子、口罩等可直接按圖片自動分類。</li>
+      <li>如果結果不準，再用 OCR 或下方修正回饋補強。</li>
     </ul>
   </aside>
 </section>
@@ -43,8 +43,8 @@
   </article>
 
   <article class="panel">
-    <h2>標籤文字分析</h2>
-    <p>可以先拍照，讓 OCR 嘗試讀取包裝文字；若本地規則不夠明確，可再用網路搜尋摘要補強判斷。</p>
+    <h2>圖片自動分類</h2>
+    <p>先拍照後按「AI 圖片自動分類」，系統會直接用照片推測物品，再依回收規則判斷分類；文字輸入只是備用線索。</p>
     <div class="quick-buttons" aria-label="常見材質快捷按鈕">
       <button class="quick-button" type="button" data-token="PET 寶特瓶">PET</button>
       <button class="quick-button" type="button" data-token="PP 塑膠杯">PP</button>
@@ -55,11 +55,11 @@
       <button class="quick-button" type="button" data-token="乾電池 電池">電池</button>
       <button class="quick-button" type="button" data-token="衛生紙 紙巾 面紙 一般垃圾">衛生紙</button>
     </div>
-    <textarea id="scanText" placeholder="例如：PET 寶特瓶、PP 塑膠杯、鋁箔包、紙餐盒油污嚴重"></textarea>
+    <textarea id="scanText" placeholder="可留空。需要補充時再輸入：例如 PET 寶特瓶、紙餐盒油污嚴重、口罩"></textarea>
     <p id="ocrStatus"></p>
     <div class="actions">
       <button class="button secondary" id="ocrButton" type="button">OCR 讀取照片文字</button>
-      <button class="button secondary" id="visualGuessButton" type="button">影像初步分類</button>
+      <button class="button secondary" id="visualGuessButton" type="button">AI 圖片自動分類</button>
       <button class="button" id="analyzeButton" type="button">分析分類</button>
       <button class="button secondary" id="webLookupButton" type="button">上網查詢補強</button>
     </div>
@@ -112,12 +112,15 @@
   </div>
 </section>
 
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.22.0/dist/tf.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/mobilenet@2.1.1/dist/mobilenet.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
 <script>
   let stream = null;
   let useBackCamera = true;
   let currentRecordId = null;
   let hasSnapshot = false;
+  let imageModelPromise = null;
   const video = document.getElementById("camera");
   const placeholder = document.getElementById("cameraPlaceholder");
   const snapshotCanvas = document.getElementById("snapshotCanvas");
@@ -225,17 +228,49 @@
       status.textContent = "影像特徵讀取失敗，請重新拍照或改用 OCR。";
       return;
     }
+
+    status.textContent = "正在載入圖片模型並分析照片...";
+    const labels = await classifySnapshotWithImageModel();
+    if (labels.length) {
+      const readableLabels = labels
+        .slice(0, 3)
+        .map(item => `${item.className} ${Math.round(item.probability * 100)}%`)
+        .join("、");
+      status.textContent = `圖片模型看到：${readableLabels}，正在判斷垃圾分類...`;
+      const ok = await runAnalysis("{{ url_for('image_classify_api') }}", { features, labels });
+      if (ok) {
+        status.textContent = "圖片自動分類完成。若結果仍不準，可用下方修正回饋補強資料。";
+      }
+      return;
+    }
+
     const textArea = document.getElementById("scanText");
     if (features.suggested_tokens.length) {
       const tokenText = features.suggested_tokens.join(" ");
       textArea.value = textArea.value ? `${textArea.value} ${tokenText}` : tokenText;
     }
-    status.textContent = `已解析影像特徵：${features.summary}，正在查詢分類資料...`;
+    status.textContent = `圖片模型暫時無法辨識，改用影像特徵：${features.summary}。`;
     const ok = await runAnalysis("{{ url_for('visual_lookup_api') }}", { features });
     if (ok) {
       status.textContent = "影像特徵分析完成。若結果仍不準，可用下方修正回饋補強資料。";
     }
   });
+
+  async function classifySnapshotWithImageModel() {
+    if (!window.mobilenet) {
+      return [];
+    }
+    try {
+      if (!imageModelPromise) {
+        imageModelPromise = window.mobilenet.load({ version: 2, alpha: 0.75 });
+      }
+      const model = await imageModelPromise;
+      return await model.classify(snapshotCanvas, 5);
+    } catch (error) {
+      console.warn("Image classification failed", error);
+      return [];
+    }
+  }
 
   function extractVisualFeaturesFromSnapshot() {
     const context = snapshotCanvas.getContext("2d");

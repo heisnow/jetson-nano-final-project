@@ -6,7 +6,7 @@ import unittest
 
 os.environ["DATABASE_URL"] = "sqlite:///:memory:"
 
-from app import analyze_text  # noqa: E402
+from app import analyze_image_labels, analyze_text  # noqa: E402
 
 
 class ClassificationRuleTests(unittest.TestCase):
@@ -77,6 +77,42 @@ class ClassificationRuleTests(unittest.TestCase):
                 result = analyze_text(text)
                 self.assertEqual(result["item_name"], item)
                 self.assertNotEqual(result["item_name"], "未知物品")
+
+    def test_image_model_labels_map_to_recycling_rules(self) -> None:
+        cases = [
+            ("water bottle", "寶特瓶", "資源回收 / 塑膠類"),
+            ("beer bottle", "玻璃瓶", "資源回收 / 玻璃類"),
+            ("toilet tissue", "衛生紙", "一般垃圾"),
+            ("oxygen mask", "口罩", "一般垃圾"),
+            ("coffee mug", "陶瓷與非容器玻璃", "一般垃圾"),
+            ("running shoe", "鞋類", "依地方規定回收"),
+            ("cellular telephone", "小型電子與線材", "依地方規定回收 / 小家電與3C"),
+            ("umbrella", "雨傘", "依地方規定回收"),
+            ("banana", "廚餘", "廚餘"),
+        ]
+        for label, item, category in cases:
+            with self.subTest(label=label):
+                result = analyze_image_labels(
+                    [{"className": label, "probability": 0.82}],
+                    {},
+                    "",
+                )
+                self.assertEqual(result["item_name"], item)
+                self.assertEqual(result["category"], category)
+                self.assertGreater(result["confidence"], 0.35)
+
+    def test_image_model_falls_back_to_visual_features(self) -> None:
+        result = analyze_image_labels(
+            [],
+            {
+                "cardboard_ratio": 0.32,
+                "edge_density": 0.18,
+                "dark_ratio": 0.12,
+            },
+            "",
+        )
+        self.assertEqual(result["item_name"], "紙箱")
+        self.assertEqual(result["category"], "資源回收 / 廢紙類")
 
 
 if __name__ == "__main__":

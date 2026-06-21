@@ -142,6 +142,30 @@ def create_app() -> Flask:
         result["record_id"] = record.id
         return jsonify(result)
 
+    @app.post("/api/image-classify")
+    def image_classify_api():
+        payload = request.get_json(silent=True) or {}
+        text = str(payload.get("text", "")).strip()
+        device_type = str(payload.get("device_type", "browser image model")).strip()
+        labels = payload.get("labels") or []
+        features = payload.get("features") or {}
+        if not isinstance(labels, list):
+            return jsonify({"status": "error", "message": "圖片模型標籤格式錯誤，請重新拍照。"}), 400
+        if not isinstance(features, dict):
+            features = {}
+
+        result = analyze_image_labels(labels, features, text)
+        record = save_scan_record(
+            input_text=result["image_lookup_text"],
+            guessed_item=result["item_name"],
+            suggested_category=result["category"],
+            confidence=result["confidence"],
+            notes=result["disposal_steps"],
+            device_type=device_type or "browser image model",
+        )
+        result["record_id"] = record.id
+        return jsonify(result)
+
     @app.post("/api/feedback")
     def feedback_api():
         payload = request.get_json(silent=True) or {}
@@ -389,6 +413,194 @@ CATEGORY_HINTS = [
 ]
 
 TAIPEI_RECYCLING_ROWS: list[dict[str, str]] | None = None
+
+
+IMAGE_LABEL_HINTS = [
+    {
+        "matches": ["water bottle", "pop bottle", "plastic bottle", "sports bottle"],
+        "terms": ["寶特瓶", "塑膠瓶", "飲料瓶", "PET", "塑膠容器"],
+    },
+    {
+        "matches": ["beer bottle", "wine bottle", "glass bottle"],
+        "terms": ["玻璃瓶", "玻璃罐", "酒瓶"],
+    },
+    {
+        "matches": ["bottle", "water jug", "jug"],
+        "terms": ["寶特瓶", "玻璃瓶", "塑膠容器"],
+    },
+    {
+        "matches": ["carton", "cardboard", "box", "packet"],
+        "terms": ["紙箱", "紙盒", "紙板", "瓦楞紙", "紙容器"],
+    },
+    {
+        "matches": ["can", "tin", "aluminum"],
+        "terms": ["鐵鋁罐", "金屬罐", "鋁罐", "鐵罐"],
+    },
+    {
+        "matches": ["plastic bag", "shopping bag", "trash bag"],
+        "terms": ["塑膠袋", "購物袋", "塑膠薄膜"],
+    },
+    {
+        "matches": ["toilet tissue", "paper towel", "napkin", "tissue"],
+        "terms": ["衛生紙", "紙巾", "面紙", "一般垃圾"],
+    },
+    {
+        "matches": ["mask", "oxygen mask", "face mask"],
+        "terms": ["口罩", "醫療口罩", "一般垃圾"],
+    },
+    {
+        "matches": ["coffee mug", "mug", "cup", "plate", "bowl", "dish"],
+        "terms": ["陶瓷碗", "馬克杯", "玻璃杯", "陶瓷", "一般垃圾"],
+    },
+    {
+        "matches": ["toothbrush", "toothpaste"],
+        "terms": ["牙刷", "牙膏", "一般垃圾"],
+    },
+    {
+        "matches": ["umbrella"],
+        "terms": ["雨傘", "傘骨"],
+    },
+    {
+        "matches": ["running shoe", "sandal", "shoe", "sneaker", "clog"],
+        "terms": ["鞋子", "球鞋", "鞋類"],
+    },
+    {
+        "matches": ["jersey", "sweatshirt", "t-shirt", "cardigan", "coat", "suit", "sock"],
+        "terms": ["衣服", "舊衣", "布料"],
+    },
+    {
+        "matches": [
+            "cellular telephone",
+            "cell phone",
+            "mobile phone",
+            "remote control",
+            "keyboard",
+            "computer keyboard",
+            "mouse",
+            "laptop",
+            "notebook",
+            "power cord",
+            "charger",
+            "earphone",
+            "headphone",
+        ],
+        "terms": ["手機", "小家電", "3C", "充電線", "耳機", "鍵盤"],
+    },
+    {
+        "matches": ["lamp", "light bulb", "lampshade"],
+        "terms": ["燈泡", "燈管", "照明光源"],
+    },
+    {
+        "matches": ["pill bottle", "medicine chest", "medicine", "band aid", "syringe"],
+        "terms": ["藥品包裝", "藥罐", "泡殼包裝", "一般垃圾"],
+    },
+    {
+        "matches": ["bubble", "bubble wrap", "plastic wrap"],
+        "terms": ["泡泡紙", "氣泡紙", "保鮮膜", "塑膠薄膜"],
+    },
+    {
+        "matches": ["envelope", "paper bag", "shopping bag"],
+        "terms": ["紙袋", "外送紙袋", "牛皮紙袋", "廢紙類"],
+    },
+    {
+        "matches": ["banana", "apple", "orange", "lemon", "broccoli", "cucumber", "mushroom", "food"],
+        "terms": ["廚餘", "食物殘渣", "果皮"],
+    },
+]
+
+
+def analyze_image_labels(
+    labels: list[object],
+    features: dict[str, object] | None = None,
+    user_text: str = "",
+) -> dict[str, object]:
+    normalized_labels = normalize_image_labels(labels)
+    model_terms = build_terms_from_image_labels(normalized_labels)
+    visual_profile = build_visual_profile(features or {})
+    visual_terms = " ".join(visual_profile["terms"])
+    label_terms = " ".join(model_terms)
+    lookup_text = " ".join(part for part in [user_text, label_terms, visual_terms] if part).strip()
+
+    if not lookup_text:
+        result = analyze_with_web_lookup("無明顯圖片分類標籤")
+    else:
+        local_result = analyze_text(lookup_text)
+        if local_result["item_name"] != "未知物品":
+            result = local_result
+            result["web_results"] = []
+            result["lookup_query"] = build_lookup_query(lookup_text)
+        else:
+            result = analyze_with_web_lookup(lookup_text)
+
+    top_label = normalized_labels[0] if normalized_labels else None
+    probability = float(top_label["probability"]) if top_label else 0.0
+    if result["item_name"] != "未知物品" and probability >= 0.35:
+        result["confidence"] = round(min(0.96, result["confidence"] + min(0.12, probability / 8)), 2)
+
+    label_summary = ", ".join(
+        f"{item['class_name']} {int(item['probability'] * 100)}%" for item in normalized_labels[:3]
+    )
+    if not label_summary:
+        label_summary = "模型沒有產生明確標籤"
+
+    result["message"] = (
+        f"圖片模型判斷：{label_summary}。"
+        f"影像特徵：{visual_profile['summary']}。"
+        "系統已用圖片標籤與影像特徵自動推測垃圾分類。"
+    )
+    result["image_labels"] = normalized_labels
+    result["image_terms"] = model_terms
+    result["visual_features"] = visual_profile["ratios"]
+    result["visual_terms"] = visual_profile["terms"]
+    result["visual_summary"] = visual_profile["summary"]
+    result["image_lookup_text"] = lookup_text or "無明顯圖片分類標籤"
+    return result
+
+
+def normalize_image_labels(labels: list[object]) -> list[dict[str, object]]:
+    normalized: list[dict[str, object]] = []
+    for label in labels:
+        if not isinstance(label, dict):
+            continue
+        class_name = str(label.get("className") or label.get("class_name") or "").strip()
+        if not class_name:
+            continue
+        try:
+            probability = float(label.get("probability") or 0)
+        except (TypeError, ValueError):
+            probability = 0.0
+        normalized.append(
+            {
+                "class_name": class_name,
+                "probability": min(1.0, max(0.0, probability)),
+            }
+        )
+    normalized.sort(key=lambda item: float(item["probability"]), reverse=True)
+    return normalized[:5]
+
+
+def build_terms_from_image_labels(labels: list[dict[str, object]]) -> list[str]:
+    terms: list[str] = []
+    for label in labels:
+        class_name = str(label["class_name"]).lower()
+        for hint in IMAGE_LABEL_HINTS:
+            if any(match in class_name for match in hint["matches"]):
+                terms.extend(hint["terms"])
+                break
+        terms.append(str(label["class_name"]))
+    return dedupe_terms(terms)
+
+
+def dedupe_terms(terms: list[str]) -> list[str]:
+    seen: set[str] = set()
+    deduped: list[str] = []
+    for term in terms:
+        cleaned = str(term).strip()
+        key = normalize_lookup_text(cleaned)
+        if cleaned and key not in seen:
+            seen.add(key)
+            deduped.append(cleaned)
+    return deduped
 
 
 def analyze_visual_features(features: dict[str, object], user_text: str = "") -> dict[str, object]:
