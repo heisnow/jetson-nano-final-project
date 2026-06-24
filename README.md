@@ -178,7 +178,7 @@ python crawler.py
 
 ## 建議小組分工
 
-- 林偲駒：Flask routes、Jinja templates、網站整合
+- 林偲駒：專題發想、使用者流程討論、Flask UI 方向建議
 - 邱冠凱：PostgreSQL schema、Render 設定、部署測試
 - 黃舒禾：Playwright crawler、回收規則資料清理
 - 方守東：資料分析、鏡頭互動頁、簡報與影片腳本
