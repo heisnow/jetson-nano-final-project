@@ -6,7 +6,7 @@ from app import analyze_text
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Create a sample EcoLens scan record.")
+    parser = argparse.ArgumentParser(description="Create a sample recycling scan record.")
     parser.add_argument("--text", default="PET 寶特瓶")
     parser.add_argument("--device", default="manual demo")
     args = parser.parse_args()

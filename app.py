@@ -27,19 +27,19 @@ from models import RecyclingRule, ScanFeedback, ScanRecord
 
 
 PROJECT = {
-    "name": "EcoLens 生活回收與標籤辨識助手",
-    "short_name": "EcoLens",
+    "name": "生活回收與標籤辨識助手",
+    "short_name": "回收分類助手",
     "subtitle": "打開手機或電腦鏡頭，讓回收分類像拍照一樣簡單",
     "team_members": ["林偲駒", "邱冠凱", "黃舒禾", "方守東", "賈宏杰"],
     "summary": (
-        "EcoLens 是一個貼近日常生活的 Flask 專題。使用者打開網頁即可啟用裝置鏡頭，"
+        "這是一個貼近日常生活的 Flask 專題。使用者打開網頁即可啟用裝置鏡頭，"
         "手機可使用前後鏡頭，電腦可使用前鏡頭，將包裝、瓶罐、紙盒或標籤對準鏡頭。"
         "目前版本結合影像特徵分析、OCR、使用者輸入線索、回收規則資料庫與網路搜尋摘要，"
         "先大致判斷垃圾分類；未來可串接圖像模型提高自動辨識能力。"
     ),
     "motivation": (
         "每天都有人站在垃圾桶前猶豫：這個杯子能不能回收？鋁箔包算紙類嗎？"
-        "外送餐盒太油還能丟回收嗎？EcoLens 希望把環保知識變成人人打開網頁就能使用的小工具。"
+        "外送餐盒太油還能丟回收嗎？本專題希望把環保知識變成人人打開網頁就能使用的小工具。"
     ),
     "data_sources": [
         "地方環保局垃圾分類與資源回收公開資訊",
@@ -891,7 +891,7 @@ def search_recycling_web(text: str) -> list[dict[str, str]]:
         response = requests.get(
             "https://duckduckgo.com/html/",
             params={"q": query},
-            headers={"User-Agent": "Mozilla/5.0 EcoLens classroom project"},
+            headers={"User-Agent": "Mozilla/5.0 RecyclingAssistant classroom project"},
             timeout=8,
         )
         response.raise_for_status()

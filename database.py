@@ -21,7 +21,7 @@ def normalize_database_url(url: str) -> str:
 
 
 def get_database_url() -> str:
-    return normalize_database_url(os.environ.get("DATABASE_URL", "sqlite:///ecolens.db"))
+    return normalize_database_url(os.environ.get("DATABASE_URL", "sqlite:///recycling_assistant.db"))
 
 
 engine = create_engine(get_database_url(), pool_pre_ping=True)

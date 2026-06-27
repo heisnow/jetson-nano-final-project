@@ -115,7 +115,7 @@ def save_rules(records: list[dict[str, object]]) -> tuple[int, int]:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Crawl recycling information into EcoLens database.")
+    parser = argparse.ArgumentParser(description="Crawl recycling information into the project database.")
     parser.add_argument("--url", default=DEFAULT_URL, help="Target dynamic page URL.")
     parser.add_argument("--source-name", default=DEFAULT_SOURCE_NAME, help="Source name saved in DB.")
     parser.add_argument("--limit", type=int, default=12, help="Maximum records to save.")
