@@ -176,20 +176,12 @@ python crawler.py
 - 臺北市資料大平臺「臺北市資源回收分類方式」
 - 地方環保局資源回收分類表與宣導資料
 
-## 建議小組分工
+## 小組分工
 
 - 林偲駒：Flask routes、Jinja templates、網站整合
 - 邱冠凱：PostgreSQL schema、Render 設定、部署測試
-- 黃舒禾：Playwright crawler、回收規則資料清理
+- 黃舒禾：Playwright crawler、回收規則資料清理、程式碼整合
 - 方守東：資料分析、鏡頭互動頁、簡報與影片腳本
 - 賈宏杰：分類規則測試、常見垃圾案例整理、展示流程協助
 
-## 報告繳交提醒
 
-- GitHub repo 連結
-- Render 網站公開連結
-- 1080p MP4 影片
-- 動機與問題說明
-- 程式碼講解
-- 鏡頭功能、資料庫、爬蟲、資料分析、部署流程展示
-- 心得與未來落地想像
