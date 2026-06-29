@@ -10,9 +10,9 @@
 
 ## 組員名單
 
+- 黃舒禾
 - 林偲駒
 - 邱冠凱
-- 黃舒禾
 - 方守東
 - 賈宏杰
 
@@ -178,9 +178,9 @@ python crawler.py
 
 ## 小組分工
 
+- 黃舒禾：Playwright crawler、回收規則資料清理、程式碼整合
 - 林偲駒：Flask routes、Jinja templates、網站整合
 - 邱冠凱：PostgreSQL schema、Render 設定、部署測試
-- 黃舒禾：Playwright crawler、回收規則資料清理、程式碼整合
 - 方守東：資料分析、鏡頭互動頁、簡報與影片腳本
 - 賈宏杰：分類規則測試、常見垃圾案例整理、展示流程協助
 
